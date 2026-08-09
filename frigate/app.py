@@ -8,7 +8,6 @@ from collections.abc import Callable
 from multiprocessing import Queue
 from multiprocessing.managers import DictProxy, SyncManager
 from multiprocessing.synchronize import Event as MpEvent
-from pathlib import Path
 
 import psutil
 import uvicorn
@@ -40,6 +39,7 @@ from frigate.const import (
     FACE_DIR,
     MODEL_CACHE_DIR,
     RECORD_DIR,
+    RUNTIME_PATHS,
     THUMB_DIR,
     TRIGGER_DIR,
 )
@@ -136,6 +136,7 @@ class FrigateApp:
         return self.config_holder.config
 
     def ensure_dirs(self) -> None:
+        RUNTIME_PATHS.ensure_directories()
         dirs = [
             CONFIG_DIR,
             RECORD_DIR,
@@ -155,7 +156,7 @@ class FrigateApp:
         for d in dirs:
             if not os.path.exists(d) and not os.path.islink(d):
                 logger.info(f"Creating directory: {d}")
-                os.makedirs(d, exist_ok=True)
+                os.makedirs(d, mode=0o700, exist_ok=True)
             else:
                 logger.debug(f"Skipping directory: {d}")
 
@@ -198,7 +199,7 @@ class FrigateApp:
                 with open(f"{CONFIG_DIR}/.vacuum", "w") as f:
                     f.write(str(datetime.datetime.now().timestamp()))
             except PermissionError:
-                logger.error("Unable to write to /config to save DB state")
+                logger.error("Unable to write to %s to save DB state", CONFIG_DIR)
 
         # Migrate DB schema
         migrate_db = SqliteExtDatabase(self.config.database.path)
@@ -304,7 +305,7 @@ class FrigateApp:
                 with open(f"{CONFIG_DIR}/.exports", "w") as f:
                     f.write(str(datetime.datetime.now().timestamp()))
             except PermissionError:
-                logger.error("Unable to write to /config to save export state")
+                logger.error("Unable to write to %s to save export state", CONFIG_DIR)
 
             migrate_exports(self.config.ffmpeg, list(self.config.cameras.keys()))
 
@@ -657,8 +658,8 @@ class FrigateApp:
     def stop(self) -> None:
         logger.info("Stopping...")
 
-        # used by the docker healthcheck
-        Path("/dev/shm/.frigate-is-stopping").touch()
+        # Used by platform-specific health checks and supervisors.
+        (RUNTIME_PATHS.runtime_dir / ".frigate-is-stopping").touch()
 
         # Cancel any running motion search jobs before setting stop_event
         stop_all_motion_search_jobs()

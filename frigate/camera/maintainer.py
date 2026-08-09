@@ -14,7 +14,7 @@ from frigate.config.camera.updater import (
     CameraConfigUpdateEnum,
     CameraConfigUpdateSubscriber,
 )
-from frigate.const import REPLAY_CAMERA_PREFIX
+from frigate.const import REPLAY_CAMERA_PREFIX, SHM_FRAMES_VAR
 from frigate.models import Regions
 from frigate.util.builtin import empty_and_close_queue
 from frigate.util.image import SharedMemoryFrameManager, UntrackedSharedMemory
@@ -88,7 +88,7 @@ class CameraMaintainer(threading.Thread):
     def __calculate_shm_frame_count(self) -> int:
         shm_stats = calculate_shm_requirements(self.config)
 
-        if not shm_stats:
+        if not shm_stats.get("supported", True):
             # /dev/shm not available
             return 0
 
@@ -99,10 +99,17 @@ class CameraMaintainer(threading.Thread):
         )
 
         if shm_stats["shm_frame_count"] < 20:
-            logger.warning(
-                f"The current SHM size of {shm_stats['total']}MB is too small, "
-                f"recommend increasing it to at least {shm_stats['min_shm']}MB."
-            )
+            if shm_stats.get("capacity_type") == "managed_budget":
+                logger.warning(
+                    "The configured POSIX shared memory frame limit is "
+                    f"{shm_stats['shm_frame_count']}, set {SHM_FRAMES_VAR} to "
+                    "at least 20"
+                )
+            else:
+                logger.warning(
+                    f"The current SHM size of {shm_stats['total']}MB is too small, "
+                    f"recommend increasing it to at least {shm_stats['min_shm']}MB"
+                )
 
         return int(shm_stats["shm_frame_count"])
 

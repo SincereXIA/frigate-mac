@@ -39,6 +39,7 @@ from frigate.util.classification import (
     collect_object_classification_examples,
     collect_state_classification_examples,
     get_dataset_image_count,
+    is_supported_image_file,
     read_training_metadata,
     write_training_metadata,
 )
@@ -73,7 +74,7 @@ def get_faces():
         face_dict[name] = []
 
         for file in filter(
-            lambda f: f.lower().endswith((".webp", ".png", ".jpg", ".jpeg")),
+            is_supported_image_file,
             os.listdir(face_dir),
         ):
             face_dict[name].append(file)
@@ -658,7 +659,7 @@ def get_classification_dataset(name: str):
         dataset_dict[category_name] = []
 
         for file in filter(
-            lambda f: f.lower().endswith((".webp", ".png", ".jpg", ".jpeg")),
+            is_supported_image_file,
             os.listdir(category_dir),
         ):
             dataset_dict[category_name].append(file)
@@ -769,7 +770,7 @@ def get_classification_images(name: str):
         status_code=200,
         content=list(
             filter(
-                lambda f: f.lower().endswith((".webp", ".png", ".jpg", ".jpeg")),
+                is_supported_image_file,
                 os.listdir(train_dir),
             )
         ),

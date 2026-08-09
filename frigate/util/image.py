@@ -2,7 +2,9 @@
 
 import datetime
 import logging
+import mmap
 import subprocess as sp
+import sys
 import threading
 from abc import ABC, abstractmethod
 from multiprocessing import resource_tracker as _mprt
@@ -994,7 +996,7 @@ class FrameManager(ABC):
         pass
 
     @abstractmethod
-    def write(self, name: str) -> memoryview | None:
+    def write(self, name: str, size: int | None = None) -> memoryview | None:
         pass
 
     @abstractmethod
@@ -1028,6 +1030,9 @@ class UntrackedSharedMemory(_mpshm.SharedMemory):
         track: bool = False,
     ) -> None:
         self._track = track
+
+        if sys.version_info >= (3, 13):
+            return super().__init__(name=name, create=create, size=size, track=track)
 
         # if tracking, normal init will suffice
         if track:
@@ -1075,13 +1080,17 @@ class SharedMemoryFrameManager(FrameManager):
         self.shm_store[name] = shm
         return shm.buf
 
-    def write(self, name: str) -> memoryview | None:
+    def write(self, name: str, size: int | None = None) -> memoryview | None:
         try:
             if name in self.shm_store:
                 shm = self.shm_store[name]
             else:
                 shm = UntrackedSharedMemory(name=name)
                 self.shm_store[name] = shm
+            if size is not None:
+                if shm.size < size:
+                    return None
+                return shm.buf[:size]
             return shm.buf
         except FileNotFoundError:
             logger.info(f"the file {name} not found")
@@ -1090,8 +1099,17 @@ class SharedMemoryFrameManager(FrameManager):
     def get(self, name: str, shape) -> np.ndarray | None:
         try:
             required = int(np.prod(shape))
+
+            def valid_size(actual: int) -> bool:
+                if actual == required:
+                    return True
+                if sys.platform != "darwin":
+                    return False
+                page_aligned = ((required + mmap.PAGESIZE - 1) // mmap.PAGESIZE) * mmap.PAGESIZE
+                return actual == page_aligned
+
             shm = self.shm_store.get(name)
-            if shm is not None and shm.size != required:
+            if shm is not None and not valid_size(shm.size):
                 # stale cached ref from a same-name recreate — drop and reopen
                 try:
                     shm.close()
@@ -1101,7 +1119,7 @@ class SharedMemoryFrameManager(FrameManager):
                 shm = None
             if shm is None:
                 shm = UntrackedSharedMemory(name=name)
-                if shm.size != required:
+                if not valid_size(shm.size):
                     # mid-recreate: OS segment doesn't match shape yet; skip
                     try:
                         shm.close()

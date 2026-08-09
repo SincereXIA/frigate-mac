@@ -6,10 +6,10 @@ from typing import Generic, TypeVar
 
 import zmq
 
-from frigate.const import FAST_QUEUE_TIMEOUT
+from frigate.const import FAST_QUEUE_TIMEOUT, RUNTIME_PATHS
 
-SOCKET_PUB = "ipc:///tmp/cache/proxy_pub"
-SOCKET_SUB = "ipc:///tmp/cache/proxy_sub"
+SOCKET_PUB = RUNTIME_PATHS.ipc_endpoint("proxy_pub")
+SOCKET_SUB = RUNTIME_PATHS.ipc_endpoint("proxy_sub")
 
 
 class ZmqProxyRunner(threading.Thread):

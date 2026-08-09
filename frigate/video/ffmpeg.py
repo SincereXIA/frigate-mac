@@ -73,8 +73,10 @@ def capture_frames(
             skipped_fps.value = skipped_eps.eps()
             current_frame.value = datetime.now().timestamp()
             frame_name = f"{config.name}_frame{frame_index}"
-            frame_buffer = frame_manager.write(frame_name)
+            frame_buffer = frame_manager.write(frame_name, frame_size)
             try:
+                if frame_buffer is None:
+                    raise FileNotFoundError(frame_name)
                 frame_buffer[:] = ffmpeg_process.stdout.read(frame_size)
             except Exception:
                 # shutdown has been initiated
@@ -92,6 +94,9 @@ def capture_frames(
                     break
 
                 continue
+            finally:
+                if frame_buffer is not None:
+                    frame_buffer.release()
 
             frame_rate.update()
 
@@ -99,10 +104,11 @@ def capture_frames(
             try:
                 # add to the queue
                 frame_queue.put((frame_name, current_frame.value), False)
-                frame_manager.close(frame_name)
             except queue.Full:
                 # if the queue is full, skip this frame
                 skipped_eps.update()
+            finally:
+                frame_manager.close(frame_name)
 
             frame_index = 0 if frame_index == shm_frame_count - 1 else frame_index + 1
     finally:

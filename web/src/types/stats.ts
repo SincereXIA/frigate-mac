@@ -97,6 +97,9 @@ export type StorageStats = {
   total: number;
   used: number;
   mount_type: string;
+  capacity_type?: "filesystem" | "managed_budget";
+  metrics_available?: boolean;
+  object_count?: number;
   min_shm?: number;
   shm_frame_count?: number;
 };

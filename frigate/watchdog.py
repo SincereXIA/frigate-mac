@@ -9,7 +9,6 @@ from multiprocessing.synchronize import Event as MpEvent
 
 from frigate.object_detection.base import ObjectDetectProcess
 from frigate.util.process import FrigateProcess
-from frigate.util.services import restart_frigate
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +48,7 @@ class FrigateWatchdog(threading.Thread):
         self.detectors = detectors
         self.stop_event = stop_event
         self._monitored: list[MonitoredProcess] = []
+        self._detector_restart_timestamps: dict[str, deque[float]] = {}
 
     def register(
         self,
@@ -111,27 +111,60 @@ class FrigateWatchdog(threading.Thread):
         except Exception:
             logger.exception("Failed to restart %s", entry.name)
 
+    def _restart_detector(
+        self,
+        name: str,
+        detector: ObjectDetectProcess,
+        reason: str,
+    ) -> bool:
+        """Restart a failed detector without restarting the Frigate service."""
+        now = datetime.datetime.now().timestamp()
+        restart_timestamps = self._detector_restart_timestamps.setdefault(
+            name, deque(maxlen=MAX_RESTARTS)
+        )
+        while restart_timestamps and now - restart_timestamps[0] > RESTART_WINDOW_S:
+            restart_timestamps.popleft()
+        if len(restart_timestamps) >= MAX_RESTARTS:
+            logger.error(
+                "Detector %s restarting too frequently (%d times in %ds), backing off",
+                name,
+                MAX_RESTARTS,
+                RESTART_WINDOW_S,
+            )
+            return False
+
+        logger.warning("Detector %s %s, restarting", name, reason)
+        try:
+            detector.start_or_restart()
+        except Exception:
+            logger.exception("Failed to restart detector %s", name)
+            return False
+
+        restart_timestamps.append(now)
+        logger.info(
+            "Restarted detector %s (PID %s)",
+            name,
+            detector.detect_process.pid if detector.detect_process else None,
+        )
+        return True
+
     def run(self) -> None:
         time.sleep(10)
         while not self.stop_event.wait(10):
             now = datetime.datetime.now().timestamp()
 
             # check the detection processes
-            for detector in self.detectors.values():
+            for name, detector in self.detectors.items():
                 detection_start = detector.detection_start.value  # type: ignore[attr-defined]
                 # issue https://github.com/python/typeshed/issues/8799
                 # from mypy 0.981 onwards
                 if detection_start > 0.0 and now - detection_start > 10:
-                    logger.info(
-                        "Detection appears to be stuck. Restarting detection process..."
-                    )
-                    detector.start_or_restart()
+                    self._restart_detector(name, detector, "appears to be stuck")
                 elif (
                     detector.detect_process is not None
                     and not detector.detect_process.is_alive()
                 ):
-                    logger.info("Detection appears to have stopped. Exiting Frigate...")
-                    restart_frigate()
+                    self._restart_detector(name, detector, "stopped unexpectedly")
 
             for entry in self._monitored:
                 self._check_process(entry)

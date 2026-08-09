@@ -5,16 +5,28 @@ import multiprocessing as mp
 import os
 import pathlib
 import subprocess
+import sys
 import threading
 from collections.abc import Callable
 from logging.handlers import QueueHandler
 from multiprocessing.synchronize import Event as MpEvent
 
-from setproctitle import setproctitle
+if sys.platform == "darwin":
+    _setproctitle = None
+else:
+    from setproctitle import setproctitle as _setproctitle
 
 import frigate.log
 from frigate.config.logger import LoggerConfig
 from frigate.const import CONFIG_DIR
+
+
+def set_process_title(title: str) -> bool:
+    """Set the OS process title where the native extension is safe to use."""
+    if sys.platform == "darwin" or _setproctitle is None:
+        return False
+    _setproctitle(title)
+    return True
 
 
 class BaseProcess(mp.Process):
@@ -56,7 +68,7 @@ class FrigateProcess(BaseProcess):
 
     def pre_run_setup(self, logConfig: LoggerConfig | None = None) -> None:
         os.nice(self.priority)
-        setproctitle(self.name)
+        set_process_title(self.name)
         threading.current_thread().name = f"process:{self.name}"
         faulthandler.enable()
 

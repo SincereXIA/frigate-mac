@@ -29,6 +29,7 @@ import { FaExclamationTriangle } from "react-icons/fa";
 import { MdOutlinePersonSearch } from "react-icons/md";
 import { getTranslatedLabel } from "@/utils/i18n";
 import { formatList } from "@/utils/stringUtil";
+import { mediaPathToUrlPath } from "@/utils/mediaPath";
 
 type PreviewPlayerProps = {
   review: ReviewSegment;
@@ -234,7 +235,7 @@ export default function PreviewThumbnailPlayer({
               : undefined
           }
           draggable={false}
-          src={`${apiHost}${review.thumb_path.replace("/media/frigate/", "")}`}
+          src={`${apiHost}${mediaPathToUrlPath(review.thumb_path)}`}
           loading={isSafari ? "eager" : "lazy"}
           onLoad={() => {
             onImgLoad();

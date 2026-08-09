@@ -423,7 +423,7 @@ export function InProgressPreview({
     return (
       <img
         className="size-full"
-        src={defaultImageUrl} //{`${apiHost}${review.thumb_path.replace("/media/frigate/", "")}`}
+        src={defaultImageUrl}
       />
     );
   }

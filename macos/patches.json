@@ -1,0 +1,121 @@
+{
+  "schema_version": 1,
+  "baseline_commit": "e73a14db5d03e5f6532ddc6c02358d71f94de3c2",
+  "patches": [
+    {
+      "id": "native-macos-baseline",
+      "phase": 0,
+      "owner": "Frigate macOS maintainers",
+      "status": "verified",
+      "paths": [
+        "macos/support.json",
+        "macos/patches.json",
+        "macos/tests/fixtures/config.yaml",
+        "macos/tests/fixtures/native-macos-h264.mp4",
+        "frigate/test/test_native_macos_baseline.py"
+      ],
+      "acceptance_tests": [
+        "python3 -u -m unittest frigate.test.test_native_macos_baseline"
+      ]
+    },
+    {
+      "id": "native-runtime-paths",
+      "phase": 1,
+      "owner": "Frigate macOS maintainers",
+      "status": "verified",
+      "paths": [
+        "frigate/runtime/paths.py",
+        "frigate/const.py",
+        "frigate/comms",
+        "frigate/detectors/plugins/zmq_ipc.py"
+      ],
+      "acceptance_tests": [
+        "python3 -u -m unittest frigate.test.test_native_macos_paths",
+        "python3 -u -m unittest frigate.test.test_native_macos_ipc"
+      ]
+    },
+    {
+      "id": "native-bootstrap",
+      "phase": 2,
+      "owner": "Frigate macOS maintainers",
+      "status": "verified",
+      "paths": [
+        "frigate/runtime/bootstrap.py",
+        "frigate/runtime/nginx.py",
+        "frigate/runtime/supervisor.py",
+        "frigate/runtime/binaries.py",
+        "frigate/util/services.py",
+        "frigate/test/test_native_macos_services.py",
+        "frigate/test/test_native_macos_supervisor.py",
+        "macos/scripts"
+      ],
+      "acceptance_tests": [
+        "python3 -u -m unittest frigate.test.test_native_macos_bootstrap",
+        "python3 -u -m unittest frigate.test.test_native_macos_services",
+        "python3 -u -m unittest frigate.test.test_native_macos_supervisor",
+        "macos/scripts/check-native-runtime.sh"
+      ]
+    },
+    {
+      "id": "native-coreml-detector",
+      "phase": 3,
+      "owner": "Frigate macOS maintainers",
+      "status": "verified",
+      "paths": [
+        "frigate/detectors/plugins/coreml.py",
+        "frigate/detectors/detector_config.py",
+        "frigate/object_detection/base.py",
+        "frigate/stats/util.py",
+        "frigate/watchdog.py",
+        "frigate/test/test_coreml_detector.py",
+        "macos/scripts/check-coreml-hardware.sh",
+        "macos/scripts/coreml_hardware_probe.py",
+        "macos/tests/fixtures/coreml-config.yaml"
+      ],
+      "acceptance_tests": [
+        "python3 -u -m unittest frigate.test.test_coreml_detector",
+        "macos/scripts/check-coreml-hardware.sh"
+      ]
+    },
+    {
+      "id": "native-videotoolbox",
+      "phase": 4,
+      "owner": "Frigate macOS maintainers",
+      "status": "verified",
+      "paths": [
+        "frigate/const.py",
+        "frigate/ffmpeg_presets.py",
+        "frigate/config/camera/ffmpeg.py",
+        "frigate/output/preview.py",
+        "frigate/stats/util.py",
+        "frigate/util/services.py",
+        "frigate/test/test_videotoolbox_presets.py",
+        "macos/scripts/check-videotoolbox-hardware.sh",
+        "macos/scripts/videotoolbox_hardware_probe.py"
+      ],
+      "acceptance_tests": [
+        "python3 -u -m unittest frigate.test.test_videotoolbox_presets",
+        "macos/scripts/check-videotoolbox-hardware.sh"
+      ]
+    },
+    {
+      "id": "native-swift-supervisor",
+      "phase": 5,
+      "owner": "Frigate macOS maintainers",
+      "status": "verified",
+      "paths": [
+        "macos/FrigateMac",
+        "macos/FrigateMacTests",
+        "macos/Package.swift",
+        "macos/scripts/build-native-app.sh",
+        "macos/scripts/check-native-app.sh",
+        "macos/scripts/relocate-macho.py"
+      ],
+      "acceptance_tests": [
+        "swift test --package-path macos",
+        "macos/scripts/build-native-app.sh /absolute/path/to/Frigate.app",
+        "macos/scripts/check-native-app.sh /absolute/path/to/Frigate.app"
+      ]
+    }
+  ]
+}

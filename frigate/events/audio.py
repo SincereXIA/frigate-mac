@@ -22,6 +22,7 @@ from frigate.config.camera.updater import (
 from frigate.const import (
     AUDIO_DURATION,
     AUDIO_FORMAT,
+    AUDIO_LABELMAP_PATH,
     AUDIO_MAX_BIT_RANGE,
     AUDIO_MIN_CONFIDENCE,
     AUDIO_SAMPLE_RATE,
@@ -454,7 +455,7 @@ class AudioTfl:
     def __init__(self, stop_event: threading.Event, num_threads: int = 2) -> None:
         self.stop_event = stop_event
         self.num_threads = num_threads
-        self.labels = load_labels("/audio-labelmap.txt", prefill=521)
+        self.labels = load_labels(AUDIO_LABELMAP_PATH, prefill=521)
         # Suppress TFLite delegate creation messages that bypass Python logging
         with suppress_stderr_during("tflite_interpreter_init"):
             self.interpreter = Interpreter(

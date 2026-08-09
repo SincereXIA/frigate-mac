@@ -1,0 +1,47 @@
+version: 0.18-0
+
+mqtt:
+  enabled: false
+
+detectors:
+  native_test:
+    type: zmq
+
+model:
+  path: "{FRIGATE_TEST_MODEL}"
+
+ffmpeg:
+  path: /opt/homebrew
+  hwaccel_args: preset-videotoolbox
+
+record:
+  enabled: true
+  continuous:
+    days: 1
+
+review:
+  alerts:
+    labels:
+      - person
+  detections:
+    labels:
+      - person
+
+cameras:
+  native_fixture:
+    ffmpeg:
+      inputs:
+        - path: "{FRIGATE_TEST_MEDIA}"
+          input_args: -re -stream_loop -1 -fflags +genpts
+          roles:
+            - detect
+            - record
+    detect:
+      enabled: true
+      width: 320
+      height: 180
+      fps: 5
+    motion:
+      threshold: 5
+      contour_area: 1
+      improve_contrast: false

@@ -6,6 +6,7 @@ in-process cache (e.g. TrackedObjectProcessor) still holds a ref to
 the old, smaller segment.
 """
 
+import mmap
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -129,6 +130,27 @@ class TestSharedMemoryFrameManagerGet(unittest.TestCase):
 
         self.assertIsNotNone(arr)
         self.assertEqual(arr.shape, (1620, 1920))
+
+    def test_macos_page_aligned_segment_size_is_accepted(self) -> None:
+        manager = SharedMemoryFrameManager()
+        aligned = _fake_shm(size=mmap.PAGESIZE)
+        manager.shm_store["cam_frame0"] = aligned
+
+        with patch("frigate.util.image.sys.platform", "darwin"):
+            arr = manager.get("cam_frame0", (32, 32))
+
+        self.assertIsNotNone(arr)
+        self.assertEqual(arr.shape, (32, 32))
+
+    def test_write_returns_only_requested_logical_size(self) -> None:
+        manager = SharedMemoryFrameManager()
+        aligned = _fake_shm(size=mmap.PAGESIZE)
+        manager.shm_store["cam_frame0"] = aligned
+
+        frame = manager.write("cam_frame0", 1024)
+
+        self.assertIsNotNone(frame)
+        self.assertEqual(len(frame), 1024)
 
 
 class TestSharedMemoryFrameManagerGetRecreatesLargerSegment(unittest.TestCase):

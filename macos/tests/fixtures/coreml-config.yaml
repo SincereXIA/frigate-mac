@@ -1,0 +1,55 @@
+version: 0.18-0
+
+mqtt:
+  enabled: false
+
+detectors:
+  native_coreml:
+    type: coreml
+    inference_backend: ane
+
+model:
+  path: /config/coreml-model.onnx
+  labelmap_path: /labelmap/coco-80.txt
+  width: 320
+  height: 320
+  input_tensor: nchw
+  input_pixel_format: rgb
+  input_dtype: float
+  model_type: yolo-generic
+
+ffmpeg:
+  path: /opt/homebrew
+  hwaccel_args: preset-videotoolbox
+
+record:
+  enabled: true
+  continuous:
+    days: 1
+
+review:
+  alerts:
+    labels:
+      - person
+  detections:
+    labels:
+      - person
+
+cameras:
+  native_fixture:
+    ffmpeg:
+      inputs:
+        - path: /config/native-media.mp4
+          input_args: -re -stream_loop -1 -fflags +genpts
+          roles:
+            - detect
+            - record
+    detect:
+      enabled: true
+      width: 320
+      height: 180
+      fps: 5
+    motion:
+      threshold: 5
+      contour_area: 1
+      improve_contrast: false

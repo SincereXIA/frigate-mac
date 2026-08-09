@@ -333,6 +333,38 @@
       "label": "AXEngine NPU",
       "description": "AXERA AX650N/AX8850N NPU detector running compiled .axmodel files via the AXEngine runtime."
     },
+    "coreml": {
+      "label": "CoreML",
+      "description": "Configuration for the native Apple Silicon CoreML detector.",
+      "inference_backend": {
+        "label": "CoreML inference backend",
+        "description": "Use Apple Neural Engine or all CoreML compute units."
+      },
+      "model_format": {
+        "label": "CoreML model format",
+        "description": "CoreML format used to compile the static ONNX graph."
+      },
+      "require_static_input_shapes": {
+        "label": "Require static input shapes",
+        "description": "Reject dynamic input shapes when CoreML builds the model."
+      },
+      "profile_compute_plan": {
+        "label": "Profile the CoreML compute plan",
+        "description": "Emit detailed CoreML compute placement diagnostics at startup."
+      },
+      "allow_cpu_only": {
+        "label": "Allow CPU-only fallback",
+        "description": "Allow startup when CoreML accepts no model partitions."
+      },
+      "allowed_cpu_fallback_ops": {
+        "label": "Allowed CPU fallback operations",
+        "description": "Operation names that may remain on CPU without a warning."
+      },
+      "allow_thread_spinning": {
+        "label": "Allow ONNX Runtime thread spinning",
+        "description": "Keep ONNX Runtime worker threads spinning between inferences. Disabling this reduces idle detector CPU usage."
+      }
+    },
     "cpu": {
       "label": "CPU",
       "description": "CPU TFLite detector that runs TensorFlow Lite models on the host CPU without hardware acceleration. Not recommended.",

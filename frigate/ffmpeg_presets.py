@@ -11,6 +11,7 @@ from frigate.const import (
     FFMPEG_HWACCEL_NVIDIA,
     FFMPEG_HWACCEL_RKMPP,
     FFMPEG_HWACCEL_VAAPI,
+    FFMPEG_HWACCEL_VIDEOTOOLBOX,
     FFMPEG_HWACCEL_VULKAN,
     LIBAVFORMAT_VERSION_MAJOR,
 )
@@ -94,6 +95,7 @@ PRESETS_HW_ACCEL_DECODE = {
     # experimental presets
     FFMPEG_HWACCEL_VULKAN: "-hwaccel vulkan -init_hw_device vulkan=gpu:0 -filter_hw_device gpu -hwaccel_output_format vulkan",
     FFMPEG_HWACCEL_AMF: "-hwaccel amf -init_hw_device amf=gpu:0 -filter_hw_device gpu -hwaccel_output_format amf",
+    FFMPEG_HWACCEL_VIDEOTOOLBOX: "-hwaccel videotoolbox -hwaccel_output_format videotoolbox_vld",
 }
 PRESETS_HW_ACCEL_DECODE["preset-nvidia-h264"] = PRESETS_HW_ACCEL_DECODE[
     FFMPEG_HWACCEL_NVIDIA
@@ -131,6 +133,7 @@ PRESETS_HW_ACCEL_SCALE = {
     # experimental presets
     FFMPEG_HWACCEL_VULKAN: "-r {0} -vf fps={0},hwupload,scale_vulkan=w={1}:h={2},hwdownload",
     FFMPEG_HWACCEL_AMF: "-r {0} -vf fps={0},hwupload,scale_amf=w={1}:h={2},hwdownload",
+    FFMPEG_HWACCEL_VIDEOTOOLBOX: "-r {0} -vf fps={0},scale_vt=w={1}:h={2},hwdownload,format=nv12",
 }
 PRESETS_HW_ACCEL_SCALE["preset-nvidia-h264"] = PRESETS_HW_ACCEL_SCALE[
     FFMPEG_HWACCEL_NVIDIA
@@ -163,6 +166,7 @@ PRESETS_HW_ACCEL_ENCODE_BIRDSEYE = {
     FFMPEG_HWACCEL_RKMPP: "{0} -hide_banner {1} -c:v h264_rkmpp -profile:v high {2}",
     "preset-rk-h265": "{0} -hide_banner {1} -c:v hevc_rkmpp -profile:v main {2}",
     FFMPEG_HWACCEL_AMF: "{0} -hide_banner {1} -c:v h264_amf -g 50 -profile:v high {2}",
+    FFMPEG_HWACCEL_VIDEOTOOLBOX: "{0} -hide_banner {1} -c:v h264_videotoolbox -allow_sw 0 -realtime 1 -g 50 -bf 0 -profile:v high -level:v 4.1 {2}",
     "default": "{0} -hide_banner {1} -c:v libx264 -g 50 -profile:v high -level:v 4.1 -preset:v superfast -tune:v zerolatency {2}",
 }
 PRESETS_HW_ACCEL_ENCODE_BIRDSEYE["preset-nvidia-h264"] = (
@@ -194,6 +198,7 @@ PRESETS_HW_ACCEL_ENCODE_TIMELAPSE = {
     FFMPEG_HWACCEL_RKMPP: "{0} -hide_banner {1} -c:v h264_rkmpp -profile:v high {2}",
     "preset-rk-h265": "{0} -hide_banner {1} -c:v hevc_rkmpp -profile:v main {2}",
     FFMPEG_HWACCEL_AMF: "{0} -hide_banner {1} -c:v h264_amf -profile:v high {2}",
+    FFMPEG_HWACCEL_VIDEOTOOLBOX: "{0} -hide_banner -hwaccel videotoolbox -hwaccel_output_format videotoolbox_vld {1} -c:v h264_videotoolbox -allow_sw 0 -realtime 0 -profile:v high -level:v 4.1 {2}",
     "default": "{0} -hide_banner {1} -c:v libx264 -preset:v ultrafast -tune:v zerolatency {2}",
 }
 PRESETS_HW_ACCEL_ENCODE_TIMELAPSE["preset-nvidia-h264"] = (
@@ -207,8 +212,8 @@ PRESETS_HW_ACCEL_ENCODE_TIMELAPSE["preset-rk-h264"] = PRESETS_HW_ACCEL_ENCODE_TI
     FFMPEG_HWACCEL_RKMPP
 ]
 
-# encoding of previews is only done on CPU due to comparable encode times and better quality from libx264
 PRESETS_HW_ACCEL_ENCODE_PREVIEW = {
+    FFMPEG_HWACCEL_VIDEOTOOLBOX: "{0} -hide_banner {1} -c:v h264_videotoolbox -allow_sw 0 -realtime 1 -profile:v baseline {2}",
     "default": "{0} -hide_banner {1} -c:v libx264 -profile:v baseline -preset:v ultrafast {2}",
 }
 

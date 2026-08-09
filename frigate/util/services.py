@@ -1,14 +1,17 @@
 """Utilities for services."""
 
 import asyncio
+import ctypes
 import json
 import logging
 import os
+import platform
 import re
 import resource
 import shutil
 import signal
 import subprocess as sp
+import sys
 import time
 import traceback
 from datetime import datetime
@@ -16,19 +19,169 @@ from typing import Any
 
 import cv2
 import psutil
-import py3nvml.py3nvml as nvml
 import requests
+
+try:
+    import py3nvml.py3nvml as nvml
+except ImportError:
+    nvml = None
 
 from frigate.const import (
     DRIVER_AMD,
     DRIVER_ENV_VAR,
     FFMPEG_HWACCEL_NVIDIA,
     FFMPEG_HWACCEL_VAAPI,
+    FFMPEG_HWACCEL_VIDEOTOOLBOX,
     SHM_FRAMES_VAR,
 )
 from frigate.util.builtin import clean_camera_user_pass, escape_special_characters
 
 logger = logging.getLogger(__name__)
+
+
+class _DarwinProcFdInfo(ctypes.Structure):
+    _fields_ = [
+        ("proc_fd", ctypes.c_int32),
+        ("proc_fdtype", ctypes.c_uint32),
+    ]
+
+
+class _DarwinProcFileInfo(ctypes.Structure):
+    _fields_ = [
+        ("fi_openflags", ctypes.c_uint32),
+        ("fi_status", ctypes.c_uint32),
+        ("fi_offset", ctypes.c_int64),
+        ("fi_type", ctypes.c_int32),
+        ("fi_guardflags", ctypes.c_uint32),
+    ]
+
+
+class _DarwinVInfoStat(ctypes.Structure):
+    _fields_ = [
+        ("vst_dev", ctypes.c_uint32),
+        ("vst_mode", ctypes.c_uint16),
+        ("vst_nlink", ctypes.c_uint16),
+        ("vst_ino", ctypes.c_uint64),
+        ("vst_uid", ctypes.c_uint32),
+        ("vst_gid", ctypes.c_uint32),
+        ("vst_atime", ctypes.c_int64),
+        ("vst_atimensec", ctypes.c_int64),
+        ("vst_mtime", ctypes.c_int64),
+        ("vst_mtimensec", ctypes.c_int64),
+        ("vst_ctime", ctypes.c_int64),
+        ("vst_ctimensec", ctypes.c_int64),
+        ("vst_birthtime", ctypes.c_int64),
+        ("vst_birthtimensec", ctypes.c_int64),
+        ("vst_size", ctypes.c_int64),
+        ("vst_blocks", ctypes.c_int64),
+        ("vst_blksize", ctypes.c_int32),
+        ("vst_flags", ctypes.c_uint32),
+        ("vst_gen", ctypes.c_uint32),
+        ("vst_rdev", ctypes.c_uint32),
+        ("vst_qspare", ctypes.c_int64 * 2),
+    ]
+
+
+class _DarwinPosixShmInfo(ctypes.Structure):
+    _fields_ = [
+        ("pshm_stat", _DarwinVInfoStat),
+        ("pshm_mappaddr", ctypes.c_uint64),
+        ("pshm_name", ctypes.c_char * 1024),
+    ]
+
+
+class _DarwinPosixShmFdInfo(ctypes.Structure):
+    _fields_ = [
+        ("pfi", _DarwinProcFileInfo),
+        ("pshminfo", _DarwinPosixShmInfo),
+    ]
+
+
+def get_darwin_posix_shm_usage(pid: int | None = None) -> dict[str, int] | None:
+    """Return logical POSIX shared memory usage for one macOS process."""
+    if sys.platform != "darwin":
+        return None
+
+    try:
+        libproc = ctypes.CDLL("/usr/lib/libproc.dylib")
+    except OSError:
+        logger.debug("Unable to load libproc for POSIX shared memory metrics")
+        return None
+
+    libproc.proc_pidinfo.argtypes = [
+        ctypes.c_int32,
+        ctypes.c_int32,
+        ctypes.c_uint64,
+        ctypes.c_void_p,
+        ctypes.c_int32,
+    ]
+    libproc.proc_pidinfo.restype = ctypes.c_int32
+    libproc.proc_pidfdinfo.argtypes = [
+        ctypes.c_int32,
+        ctypes.c_int32,
+        ctypes.c_int32,
+        ctypes.c_void_p,
+        ctypes.c_int32,
+    ]
+    libproc.proc_pidfdinfo.restype = ctypes.c_int32
+
+    process_id = pid or os.getpid()
+    proc_pidlistfds = 1
+    prox_fdtype_pshm = 3
+    proc_pidfdpshminfo = 5
+    fd_info_size = ctypes.sizeof(_DarwinProcFdInfo)
+    required_bytes = libproc.proc_pidinfo(
+        process_id,
+        proc_pidlistfds,
+        0,
+        None,
+        0,
+    )
+    if required_bytes <= 0:
+        return None
+
+    # Allow for descriptors opened between the sizing and collection calls.
+    fd_capacity = required_bytes // fd_info_size + 32
+    fd_infos = (_DarwinProcFdInfo * fd_capacity)()
+    returned_bytes = libproc.proc_pidinfo(
+        process_id,
+        proc_pidlistfds,
+        0,
+        fd_infos,
+        ctypes.sizeof(fd_infos),
+    )
+    if returned_bytes <= 0:
+        return None
+
+    objects: dict[str, int] = {}
+    for fd_info in fd_infos[: returned_bytes // fd_info_size]:
+        if fd_info.proc_fdtype != prox_fdtype_pshm:
+            continue
+
+        shm_info = _DarwinPosixShmFdInfo()
+        info_size = ctypes.sizeof(shm_info)
+        result = libproc.proc_pidfdinfo(
+            process_id,
+            fd_info.proc_fd,
+            proc_pidfdpshminfo,
+            ctypes.byref(shm_info),
+            info_size,
+        )
+        if result != info_size:
+            continue
+
+        name = bytes(shm_info.pshminfo.pshm_name).split(b"\0", 1)[0]
+        if not name:
+            continue
+
+        decoded_name = name.decode(errors="replace")
+        size = max(shm_info.pshminfo.pshm_stat.vst_size, 0)
+        objects[decoded_name] = max(objects.get(decoded_name, 0), size)
+
+    return {
+        "bytes": sum(objects.values()),
+        "object_count": len(objects),
+    }
 
 
 def restart_frigate():
@@ -106,7 +259,6 @@ def get_cpu_stats() -> dict[str, dict]:
     """Get cpu usages for each process id"""
     usages = {}
     docker_memlimit = get_docker_memlimit_bytes() / 1024
-    total_mem = os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") / 1024
 
     system_cpu = psutil.cpu_percent(
         interval=None
@@ -127,33 +279,16 @@ def get_cpu_stats() -> dict[str, dict]:
             if not any(keyword in cmdline for keyword in keywords):
                 continue
 
-            with open(f"/proc/{pid}/stat") as f:
-                stats = f.readline().split()
-            utime = int(stats[13])
-            stime = int(stats[14])
-            start_time = int(stats[21])
-
-            with open("/proc/uptime") as f:
-                system_uptime_sec = int(float(f.read().split()[0]))
-
-            clk_tck = os.sysconf(os.sysconf_names["SC_CLK_TCK"])
-
-            process_utime_sec = utime // clk_tck
-            process_stime_sec = stime // clk_tck
-            process_start_time_sec = start_time // clk_tck
-
-            process_elapsed_sec = system_uptime_sec - process_start_time_sec
-            process_usage_sec = process_utime_sec + process_stime_sec
-            cpu_average_usage = process_usage_sec * 100 // process_elapsed_sec
-
-            with open(f"/proc/{pid}/statm") as f:
-                mem_stats = f.readline().split()
-            mem_res = int(mem_stats[1]) * os.sysconf("SC_PAGE_SIZE") / 1024
+            cpu_times = process.cpu_times()
+            process_elapsed_sec = max(time.time() - process.create_time(), 0.001)
+            process_usage_sec = cpu_times.user + cpu_times.system
+            cpu_average_usage = process_usage_sec * 100 / process_elapsed_sec
+            mem_res = process.memory_info().rss / 1024
 
             if docker_memlimit > 0:
                 mem_pct = round((mem_res / docker_memlimit) * 100, 1)
             else:
-                mem_pct = round((mem_res / total_mem) * 100, 1)
+                mem_pct = round(process.memory_percent(), 1)
 
             usages[pid] = {
                 "cpu": str(cpu_percent),
@@ -171,23 +306,21 @@ def get_physical_interfaces(interfaces) -> list:
     if not interfaces:
         return []
 
-    with open("/proc/net/dev") as file:
-        lines = file.readlines()
-
-    physical_interfaces = []
-    for line in lines:
-        if ":" in line:
-            interface = line.split(":")[0].strip()
-            for int in interfaces:
-                if interface.startswith(int):
-                    physical_interfaces.append(interface)
-
-    return physical_interfaces
+    available_interfaces = psutil.net_if_stats()
+    return [
+        interface
+        for interface, stats in available_interfaces.items()
+        if stats.isup and any(interface.startswith(prefix) for prefix in interfaces)
+    ]
 
 
 def get_bandwidth_stats(config) -> dict[str, dict]:
     """Get bandwidth usages for each ffmpeg process id"""
     usages = {}
+    if shutil.which("nethogs") is None:
+        logger.debug("Network bandwidth stats are unsupported without nethogs")
+        return usages
+
     top_command = ["nethogs", "-t", "-v0", "-c5", "-d1"] + get_physical_interfaces(
         config.telemetry.network_interfaces
     )
@@ -801,6 +934,9 @@ def get_axcl_npu_stats() -> dict[str, str | float] | None:
 
 
 def try_get_info(f, h, default="N/A", sensor=None):
+    if nvml is None:
+        return default
+
     try:
         if h:
             if sensor is not None:
@@ -815,6 +951,9 @@ def try_get_info(f, h, default="N/A", sensor=None):
 
 
 def get_nvidia_gpu_stats() -> dict[int, dict]:
+    if nvml is None:
+        return {}
+
     names: dict[str, int] = {}
     results = {}
     try:
@@ -1165,6 +1304,14 @@ async def analyze_record_keyframes(
 
 def vainfo_hwaccel(device_name: str | None = None) -> sp.CompletedProcess:
     """Run vainfo."""
+    if sys.platform == "darwin" or shutil.which("vainfo") is None:
+        return sp.CompletedProcess(
+            args=["vainfo"],
+            returncode=127,
+            stdout=b"",
+            stderr=b"vainfo is unsupported on this platform",
+        )
+
     if not device_name:
         cmd = ["vainfo"]
     else:
@@ -1180,6 +1327,9 @@ def vainfo_hwaccel(device_name: str | None = None) -> sp.CompletedProcess:
 
 def get_nvidia_driver_info() -> dict[str, Any]:
     """Get general hardware info for nvidia GPU."""
+    if nvml is None:
+        return {}
+
     results = {}
     try:
         nvml.nvmlInit()
@@ -1205,6 +1355,10 @@ def get_nvidia_driver_info() -> dict[str, Any]:
 
 def auto_detect_hwaccel() -> str:
     """Detect hwaccel args by default."""
+    if sys.platform == "darwin" and platform.machine().lower() == "arm64":
+        logger.info("Automatically selected VideoToolbox for video decoding")
+        return FFMPEG_HWACCEL_VIDEOTOOLBOX
+
     try:
         cuda = False
         vaapi = False
@@ -1449,52 +1603,88 @@ def get_fs_type(path: str) -> str:
 
 
 def calculate_shm_requirements(config) -> dict:
-    try:
-        storage_stats = shutil.disk_usage("/dev/shm")
-    except (FileNotFoundError, OSError):
-        return {}
-
-    total_mb = round(storage_stats.total / pow(2, 20), 1)
-    used_mb = round(storage_stats.used / pow(2, 20), 1)
-    free_mb = round(storage_stats.free / pow(2, 20), 1)
-
-    # required for log files + nginx cache
-    min_req_shm = 40 + 10
-
+    linux_reserved_mb = 40 + 10
+    native_reserved_mb = 8
     if config.birdseye.restream:
-        min_req_shm += 8
+        linux_reserved_mb += 8
+        native_reserved_mb += 8
 
-    available_shm = total_mb - min_req_shm
-    cam_total_frame_size = 0.0
-
+    configured_camera_frame_size = 0.0
     for camera in config.cameras.values():
         if camera.enabled_in_config and camera.detect.width and camera.detect.height:
-            cam_total_frame_size += round(
+            configured_camera_frame_size += round(
                 (camera.detect.width * camera.detect.height * 1.5 + 270480) / 1048576,
                 1,
             )
 
-    # leave room for 2 cameras that are added dynamically, if a user wants to add more cameras they may need to increase the SHM size and restart after adding them.
-    cam_total_frame_size += 2 * round(
+    # Linux needs spare capacity because its tmpfs size cannot grow dynamically.
+    linux_camera_frame_size = configured_camera_frame_size + 2 * round(
         (1280 * 720 * 1.5 + 270480) / 1048576,
         1,
     )
+    configured_max_frames = max(int(os.environ.get(SHM_FRAMES_VAR, "50")), 0)
+
+    try:
+        storage_stats = shutil.disk_usage("/dev/shm")
+    except (FileNotFoundError, OSError):
+        if sys.platform != "darwin":
+            return {
+                "supported": False,
+                "reason": "The platform does not expose shared memory metrics",
+            }
+
+        # Darwin POSIX SHM has no fixed filesystem capacity. Use the configured
+        # frame count to report a stable Frigate-managed logical memory budget.
+        shm_frame_count = configured_max_frames
+        min_shm = round(native_reserved_mb + configured_camera_frame_size * 20)
+        total_mb = round(
+            native_reserved_mb + configured_camera_frame_size * configured_max_frames,
+            1,
+        )
+        usage = get_darwin_posix_shm_usage()
+        used_mb = round((usage or {}).get("bytes", 0) / pow(2, 20), 1)
+        free_mb = round(max(total_mb - used_mb, 0), 1)
+
+        return {
+            "supported": True,
+            "total": total_mb,
+            "used": used_mb,
+            "free": free_mb,
+            "mount_type": "posix_shared_memory",
+            "capacity_type": "managed_budget",
+            "metrics_available": usage is not None,
+            "object_count": (usage or {}).get("object_count", 0),
+            "available": free_mb,
+            "camera_frame_size": configured_camera_frame_size,
+            "shm_frame_count": shm_frame_count,
+            "min_shm": min_shm,
+        }
+    else:
+        total_mb = round(storage_stats.total / pow(2, 20), 1)
+        used_mb = round(storage_stats.used / pow(2, 20), 1)
+        free_mb = round(storage_stats.free / pow(2, 20), 1)
+        mount_type = get_fs_type("/dev/shm")
+
+    available_shm = total_mb - linux_reserved_mb
 
     shm_frame_count = min(
-        int(os.environ.get(SHM_FRAMES_VAR, "50")),
-        int(available_shm / cam_total_frame_size),
+        configured_max_frames,
+        max(int(available_shm / linux_camera_frame_size), 0),
     )
 
     # minimum required shm recommendation
-    min_shm = round(min_req_shm + cam_total_frame_size * 20)
+    min_shm = round(linux_reserved_mb + linux_camera_frame_size * 20)
 
     return {
+        "supported": True,
         "total": total_mb,
         "used": used_mb,
         "free": free_mb,
-        "mount_type": get_fs_type("/dev/shm"),
+        "mount_type": mount_type,
+        "capacity_type": "filesystem",
+        "metrics_available": True,
         "available": round(available_shm, 1),
-        "camera_frame_size": cam_total_frame_size,
+        "camera_frame_size": linux_camera_frame_size,
         "shm_frame_count": shm_frame_count,
         "min_shm": min_shm,
     }

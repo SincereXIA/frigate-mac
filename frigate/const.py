@@ -1,21 +1,29 @@
 import os
 import re
 
-INSTALL_DIR = "/opt/frigate"
-CONFIG_DIR = "/config"
-DEFAULT_DB_PATH = f"{CONFIG_DIR}/frigate.db"
-MODEL_CACHE_DIR = f"{CONFIG_DIR}/model_cache"
-BASE_DIR = "/media/frigate"
-CLIPS_DIR = f"{BASE_DIR}/clips"
-EXPORT_DIR = f"{BASE_DIR}/exports"
-FACE_DIR = f"{CLIPS_DIR}/faces"
-THUMB_DIR = f"{CLIPS_DIR}/thumbs"
-RECORD_DIR = f"{BASE_DIR}/recordings"
-TRIGGER_DIR = f"{CLIPS_DIR}/triggers"
-BIRDSEYE_PIPE = "/tmp/cache/birdseye"
-CACHE_DIR = "/tmp/cache"
+from frigate.runtime.paths import RuntimePaths
+
+RUNTIME_PATHS = RuntimePaths.from_environment()
+
+INSTALL_DIR = str(RUNTIME_PATHS.install_dir)
+CONFIG_DIR = str(RUNTIME_PATHS.config_dir)
+DEFAULT_DB_PATH = str(RUNTIME_PATHS.database)
+MODEL_CACHE_DIR = str(RUNTIME_PATHS.model_cache_dir)
+BASE_DIR = str(RUNTIME_PATHS.media_dir)
+CLIPS_DIR = str(RUNTIME_PATHS.clips_dir)
+EXPORT_DIR = str(RUNTIME_PATHS.exports_dir)
+FACE_DIR = str(RUNTIME_PATHS.faces_dir)
+THUMB_DIR = str(RUNTIME_PATHS.thumbnails_dir)
+RECORD_DIR = str(RUNTIME_PATHS.recordings_dir)
+TRIGGER_DIR = str(RUNTIME_PATHS.triggers_dir)
+BIRDSEYE_PIPE = str(RUNTIME_PATHS.birdseye_pipe)
+CACHE_DIR = str(RUNTIME_PATHS.cache_dir)
+LOG_DIR = str(RUNTIME_PATHS.log_dir)
+RUNTIME_DIR = str(RUNTIME_PATHS.runtime_dir)
+LABELMAP_PATH = str(RUNTIME_PATHS.labelmap_path)
+AUDIO_LABELMAP_PATH = str(RUNTIME_PATHS.audio_labelmap_path)
 REPLAY_CAMERA_PREFIX = "_replay_"
-REPLAY_DIR = os.path.join(CLIPS_DIR, "replay")
+REPLAY_DIR = str(RUNTIME_PATHS.replay_dir)
 PLUS_ENV_VAR = "PLUS_API_KEY"
 PLUS_API_HOST = "https://api.frigate.video"
 
@@ -94,6 +102,7 @@ FFMPEG_HWACCEL_VAAPI = "preset-vaapi"
 FFMPEG_HWACCEL_VULKAN = "preset-vulkan"
 FFMPEG_HWACCEL_RKMPP = "preset-rkmpp"
 FFMPEG_HWACCEL_AMF = "preset-amd-amf"
+FFMPEG_HWACCEL_VIDEOTOOLBOX = "preset-videotoolbox"
 FFMPEG_HVC1_ARGS = ["-tag:v", "hvc1"]
 
 # RKNN constants

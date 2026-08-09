@@ -24,6 +24,7 @@ import { cn } from "@/lib/utils";
 import { useTranslation } from "react-i18next";
 import { getTranslatedLabel } from "@/utils/i18n";
 import { formatList } from "@/utils/stringUtil";
+import { mediaPathToUrlPath } from "@/utils/mediaPath";
 
 type AnimatedEventCardProps = {
   event: ReviewSegment;
@@ -205,7 +206,7 @@ export function AnimatedEventCard({
                     "h-full w-auto min-w-10 select-none object-contain",
                     isSafari && !isLoaded ? "hidden" : "visible",
                   )}
-                  src={`${apiHost}${event.thumb_path.replace("/media/frigate/", "")}`}
+                  src={`${apiHost}${mediaPathToUrlPath(event.thumb_path)}`}
                   loading={isSafari ? "eager" : "lazy"}
                   onLoad={() => setIsLoaded(true)}
                 />

@@ -1,6 +1,10 @@
 .DS_Store
 __pycache__
 .mypy_cache
+.venv-macos/
+macos/.runtime/
+macos/.build/
+macos/build/
 *.swp
 debug
 .claude/*
@@ -11,6 +15,7 @@ config/*
 !config/*.example
 models
 *.mp4
+!macos/tests/fixtures/*.mp4
 *.db
 *.db-*
 *.csv
@@ -23,6 +28,7 @@ core
 !/web/**/*.ts
 .idea/*
 .ipynb_checkpoints
+midscene_run/
 
 # Auto-generated Docker Compose Generator config files
 docs/src/components/DockerComposeGenerator/config/devices.ts

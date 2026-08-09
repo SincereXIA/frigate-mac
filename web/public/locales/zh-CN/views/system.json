@@ -151,6 +151,14 @@
     "shm": {
       "title": "共享内存（SHM）分配",
       "warning": "当前共享内存（SHM）容量过小（ {{total}}MB），请将其至少增加到 {{min_shm}}MB。",
+      "posixTitle": "POSIX 共享内存",
+      "posixWarning": "当前帧缓冲配置为每个摄像头 {{frames}} 个槽位，请将 SHM_MAX_FRAMES 至少设置为 20。",
+      "posixSummary": "逻辑分配 / Frigate 管理预算 · {{objects}} 个对象",
+      "metricsUnavailable": "暂时无法读取 POSIX 共享内存的逻辑分配量。",
+      "posixInfo": {
+        "title": "macOS 共享内存统计",
+        "description": "macOS 没有固定的 /dev/shm 容量。图表比较当前逻辑分配量与 Frigate 管理的帧缓冲预算，并不表示物理驻留内存。"
+      },
       "frameLifetime": {
         "title": "帧保留时间",
         "description": "每个摄像头在共享内存中拥有 {{frames}} 个帧槽位。在最快摄像头的帧率下，每一帧在被覆盖前大约可保留 {{lifetime}} 秒。"

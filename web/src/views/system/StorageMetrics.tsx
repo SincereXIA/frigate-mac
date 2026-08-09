@@ -1,6 +1,6 @@
 import { CombinedStorageGraph } from "@/components/graph/CombinedStorageGraph";
 import { StorageGraph } from "@/components/graph/StorageGraph";
-import { FrigateStats } from "@/types/stats";
+import { FrigateStats, StorageStats } from "@/types/stats";
 import { useEffect, useMemo } from "react";
 import {
   Popover,
@@ -35,6 +35,36 @@ type CameraStorage = {
 type StorageMetricsProps = {
   setLastUpdated: (last: number) => void;
 };
+
+type StorageEntry = {
+  path: string;
+  stats: StorageStats;
+};
+
+function findStorageEntry(
+  storage: Record<string, StorageStats>,
+  canonicalPath: string,
+): StorageEntry | undefined {
+  const exact = storage[canonicalPath];
+  if (exact?.used != undefined && exact.total != undefined) {
+    return { path: canonicalPath, stats: exact };
+  }
+
+  const directory = canonicalPath.split("/").at(-1);
+  if (!directory) {
+    return undefined;
+  }
+
+  const entry = Object.entries(storage).find(
+    ([path, stats]) =>
+      path.endsWith(`/${directory}`) &&
+      stats.used != undefined &&
+      stats.total != undefined,
+  );
+
+  return entry ? { path: entry[0], stats: entry[1] } : undefined;
+}
+
 export default function StorageMetrics({
   setLastUpdated,
 }: StorageMetricsProps) {
@@ -47,22 +77,37 @@ export default function StorageMetrics({
   const timezone = useTimezone(config);
   const { getLocaleDocUrl } = useDocDomain();
 
+  const storageEntries = useMemo(() => {
+    if (!stats) {
+      return undefined;
+    }
+
+    return {
+      recordings: findStorageEntry(
+        stats.service.storage,
+        "/media/frigate/recordings",
+      ),
+      cache: findStorageEntry(stats.service.storage, "/tmp/cache"),
+      sharedMemory: findStorageEntry(stats.service.storage, "/dev/shm"),
+    };
+  }, [stats]);
+
   const totalStorage = useMemo(() => {
-    if (!cameraStorage || !stats) {
+    if (!cameraStorage || !storageEntries?.recordings) {
       return undefined;
     }
 
     const totalStorage = {
-      used: stats.service.storage["/media/frigate/recordings"]["used"],
+      used: storageEntries.recordings.stats.used,
       camera: 0,
-      total: stats.service.storage["/media/frigate/recordings"]["total"],
+      total: storageEntries.recordings.stats.total,
     };
 
     Object.values(cameraStorage).forEach(
       (cam) => (totalStorage.camera += cam.usage),
     );
     return totalStorage;
-  }, [cameraStorage, stats]);
+  }, [cameraStorage, storageEntries]);
 
   useEffect(() => {
     if (totalStorage) {
@@ -104,7 +149,7 @@ export default function StorageMetrics({
       return undefined;
     }
 
-    const shmFrameCount = stats.service.storage["/dev/shm"]?.shm_frame_count;
+    const shmFrameCount = storageEntries?.sharedMemory?.stats.shm_frame_count;
 
     if (!shmFrameCount || shmFrameCount <= 0) {
       return undefined;
@@ -126,9 +171,24 @@ export default function StorageMetrics({
       frames: shmFrameCount,
       lifetime: Math.round((shmFrameCount / maxCameraFps) * 10) / 10,
     };
-  }, [stats, config]);
+  }, [stats, config, storageEntries]);
 
-  if (!cameraStorage || !stats || !totalStorage || !config) {
+  const sharedMemoryStats = storageEntries?.sharedMemory?.stats;
+  const isPosixSharedMemory =
+    sharedMemoryStats?.capacity_type === "managed_budget" ||
+    sharedMemoryStats?.mount_type === "posix_shared_memory";
+  const hasSharedMemoryWarning = isPosixSharedMemory
+    ? (sharedMemoryStats?.shm_frame_count ?? 0) < 20
+    : (sharedMemoryStats?.total ?? 0) < (sharedMemoryStats?.min_shm ?? 0);
+
+  if (
+    !cameraStorage ||
+    !stats ||
+    !totalStorage ||
+    !config ||
+    !storageEntries?.cache ||
+    !storageEntries.sharedMemory
+  ) {
     return (
       <div className="flex size-full items-center justify-center">
         <ActivityIndicator />
@@ -181,17 +241,42 @@ export default function StorageMetrics({
           )}
         </div>
         <div className="flex-col rounded-lg bg-background_alt p-2.5 md:rounded-2xl">
-          <div className="mb-5">/tmp/cache</div>
+          <div className="mb-5 truncate" title={storageEntries.cache.path}>
+            {storageEntries.cache.path}
+          </div>
           <StorageGraph
             graphId="general-cache"
-            used={stats.service.storage["/tmp/cache"]["used"]}
-            total={stats.service.storage["/tmp/cache"]["total"]}
+            used={storageEntries.cache.stats.used}
+            total={storageEntries.cache.stats.total}
           />
         </div>
         <div className="flex-col rounded-lg bg-background_alt p-2.5 md:rounded-2xl">
           <div className="mb-5 flex flex-row items-center justify-between">
-            /dev/shm
+            {isPosixSharedMemory ? t("storage.shm.posixTitle") : "/dev/shm"}
             <div className="flex flex-row items-center gap-2">
+              {isPosixSharedMemory && (
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <button
+                      className="focus:outline-none"
+                      aria-label={t("storage.shm.posixInfo.title")}
+                    >
+                      <CiCircleAlert
+                        className="size-5"
+                        aria-label={t("storage.shm.posixInfo.title")}
+                      />
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-80">
+                    <div className="space-y-2">
+                      <div className="font-medium">
+                        {t("storage.shm.posixInfo.title")}
+                      </div>
+                      <div>{t("storage.shm.posixInfo.description")}</div>
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              )}
               {shmFrameLifetime && (
                 <Popover>
                   <PopoverTrigger asChild>
@@ -215,8 +300,7 @@ export default function StorageMetrics({
                   </PopoverContent>
                 </Popover>
               )}
-              {stats.service.storage["/dev/shm"]["total"] <
-                (stats.service.storage["/dev/shm"]["min_shm"] ?? 0) && (
+              {hasSharedMemoryWarning && (
                 <Popover>
                   <PopoverTrigger asChild>
                     <button
@@ -231,34 +315,54 @@ export default function StorageMetrics({
                   </PopoverTrigger>
                   <PopoverContent className="w-80">
                     <div className="space-y-2">
-                      {t("storage.shm.warning", {
-                        total: stats.service.storage["/dev/shm"]["total"],
-                        min_shm: stats.service.storage["/dev/shm"]["min_shm"],
-                      })}
-                      <div className="mt-2 flex items-center text-primary">
-                        <Link
-                          to={getLocaleDocUrl(
-                            "frigate/installation#calculating-required-shm-size",
-                          )}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline"
-                        >
-                          {t("readTheDocumentation", { ns: "common" })}
-                          <LuExternalLink className="ml-2 inline-flex size-3" />
-                        </Link>
-                      </div>
+                      {isPosixSharedMemory
+                        ? t("storage.shm.posixWarning", {
+                            frames:
+                              storageEntries.sharedMemory.stats.shm_frame_count,
+                          })
+                        : t("storage.shm.warning", {
+                            total: storageEntries.sharedMemory.stats.total,
+                            min_shm: storageEntries.sharedMemory.stats.min_shm,
+                          })}
+                      {!isPosixSharedMemory && (
+                        <div className="mt-2 flex items-center text-primary">
+                          <Link
+                            to={getLocaleDocUrl(
+                              "frigate/installation#calculating-required-shm-size",
+                            )}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline"
+                          >
+                            {t("readTheDocumentation", { ns: "common" })}
+                            <LuExternalLink className="ml-2 inline-flex size-3" />
+                          </Link>
+                        </div>
+                      )}
                     </div>
                   </PopoverContent>
                 </Popover>
               )}
             </div>
           </div>
-          <StorageGraph
-            graphId="general-shared-memory"
-            used={stats.service.storage["/dev/shm"]["used"]}
-            total={stats.service.storage["/dev/shm"]["total"]}
-          />
+          {storageEntries.sharedMemory.stats.metrics_available === false ? (
+            <div className="flex h-[55px] items-center text-xs text-muted-foreground">
+              {t("storage.shm.metricsUnavailable")}
+            </div>
+          ) : (
+            <StorageGraph
+              graphId="general-shared-memory"
+              used={storageEntries.sharedMemory.stats.used}
+              total={storageEntries.sharedMemory.stats.total}
+            />
+          )}
+          {isPosixSharedMemory && (
+            <div className="mt-2 text-xs text-primary-variant">
+              {t("storage.shm.posixSummary", {
+                objects: storageEntries.sharedMemory.stats.object_count ?? 0,
+              })}
+            </div>
+          )}
         </div>
       </div>
       <div className="mt-4 text-sm font-medium text-muted-foreground">

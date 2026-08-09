@@ -70,6 +70,7 @@ import useSWR from "swr";
 import ExportActionGroup from "@/components/filter/ExportActionGroup";
 import ExportFilterGroup from "@/components/filter/ExportFilterGroup";
 import { useIsAdmin } from "@/hooks/use-is-admin";
+import { mediaPathToUrlPath } from "@/utils/mediaPath";
 
 // always parse these as string arrays
 const EXPORT_FILTER_ARRAY_KEYS = ["cameras"];
@@ -700,7 +701,7 @@ function Exports() {
             }
           >
             <source
-              src={`${baseUrl}${selected?.video_path?.replace("/media/frigate/", "")}`}
+              src={`${baseUrl}${selected?.video_path ? mediaPathToUrlPath(selected.video_path) : ""}`}
               type="video/mp4"
             />
           </video>

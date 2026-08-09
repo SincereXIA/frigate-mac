@@ -7,6 +7,7 @@ import numpy as np
 import zmq
 from pydantic import ConfigDict, Field
 
+from frigate.const import RUNTIME_PATHS
 from frigate.detectors.detection_api import DetectionApi
 from frigate.detectors.detector_config import BaseDetectorConfig
 
@@ -24,7 +25,7 @@ class ZmqDetectorConfig(BaseDetectorConfig):
 
     type: Literal[DETECTOR_KEY]
     endpoint: str = Field(
-        default="ipc:///tmp/cache/zmq_detector",
+        default=RUNTIME_PATHS.ipc_endpoint("zmq_detector"),
         title="ZMQ IPC endpoint",
         description="The ZMQ endpoint to connect to.",
     )

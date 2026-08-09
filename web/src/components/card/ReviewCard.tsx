@@ -41,6 +41,7 @@ import { MdAutoAwesome } from "react-icons/md";
 import { GenAISummaryDialog } from "../overlay/chip/GenAISummaryChip";
 import { getTranslatedLabel } from "@/utils/i18n";
 import { formatList } from "@/utils/stringUtil";
+import { mediaPathToUrlPath } from "@/utils/mediaPath";
 
 type ReviewCardProps = {
   event: ReviewSegment;
@@ -165,7 +166,7 @@ export default function ReviewCard({
             "outline outline-[3px] -outline-offset-[2.8px] outline-selected duration-200",
           imgLoaded ? "visible" : "invisible",
         )}
-        src={`${baseUrl}${event.thumb_path.replace("/media/frigate/", "")}`}
+        src={`${baseUrl}${mediaPathToUrlPath(event.thumb_path)}`}
         loading={isSafari ? "eager" : "lazy"}
         style={
           isIOS

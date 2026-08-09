@@ -32,6 +32,10 @@ def resolve_ffmpeg_path(path: str, binary: str = "ffmpeg") -> str:
     bundled version so existing configs keep working across an upgrade or a
     revert. Custom install paths (anything absolute) are used as-is.
     """
+    native_binary = os.environ.get(f"FRIGATE_{binary.upper()}_PATH")
+    if path == "default" and native_binary:
+        return native_binary
+
     if path == "default" or (
         not path.startswith("/") and path not in INCLUDED_FFMPEG_VERSIONS
     ):

@@ -11,6 +11,7 @@ from pydantic.fields import PrivateAttr
 
 from frigate.const import DEFAULT_ATTRIBUTE_LABEL_MAP, MODEL_CACHE_DIR
 from frigate.plus import PlusApi
+from frigate.runtime.paths import RuntimePaths
 from frigate.util.builtin import generate_color_palette, load_labels
 
 logger = logging.getLogger(__name__)
@@ -128,8 +129,9 @@ class ModelConfig(BaseModel):
     def __init__(self, **config):
         super().__init__(**config)
 
+        default_labelmap_path = RuntimePaths.from_environment().labelmap_path
         self._merged_labelmap = {
-            **load_labels(config.get("labelmap_path", "/labelmap.txt")),
+            **load_labels(config.get("labelmap_path", str(default_labelmap_path))),
             **config.get("labelmap", {}),
         }
         self._colormap = {}
@@ -250,6 +252,17 @@ class BaseDetectorConfig(BaseModel):
         title="Detector specific model path",
         description="File path to the detector model binary if required by the chosen detector.",
     )
+    _runtime_status_path: str | None = PrivateAttr(default=None)
+
+    @property
+    def runtime_status_path(self) -> str | None:
+        """Return the internal detector status path assigned by Frigate."""
+        return self._runtime_status_path
+
+    def set_runtime_status_path(self, path: str) -> None:
+        """Assign an internal status path that is not part of user config."""
+        self._runtime_status_path = path
+
     model_config = ConfigDict(
         extra="allow", arbitrary_types_allowed=True, protected_namespaces=()
     )

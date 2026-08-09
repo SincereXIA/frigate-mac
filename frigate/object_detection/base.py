@@ -1,4 +1,5 @@
 import datetime
+import hashlib
 import logging
 import queue
 import threading
@@ -24,6 +25,7 @@ from frigate.detectors.detector_config import (
     InputDTypeEnum,
     ModelConfig,
 )
+from frigate.runtime.paths import RuntimePaths
 from frigate.util.builtin import EventsPerSecond, load_labels
 from frigate.util.image import SharedMemoryFrameManager, UntrackedSharedMemory
 from frigate.util.process import FrigateProcess
@@ -120,6 +122,7 @@ class DetectorRunner(FrigateProcess):
         start_time: Any,
         config: FrigateConfig,
         detector_config: BaseDetectorConfig,
+        runtime_status_path: str,
         stop_event: MpEvent,
     ) -> None:
         super().__init__(stop_event, PROCESS_PRIORITY_HIGH, name=name, daemon=True)
@@ -129,6 +132,7 @@ class DetectorRunner(FrigateProcess):
         self.start_time = start_time
         self.config = config
         self.detector_config = detector_config
+        self.runtime_status_path = runtime_status_path
         self.outputs: dict[str, Any] = {}
 
     def create_output_shm(self, name: str) -> None:
@@ -140,6 +144,7 @@ class DetectorRunner(FrigateProcess):
         self.pre_run_setup(self.config.logger)
 
         frame_manager = SharedMemoryFrameManager()
+        self.detector_config.set_runtime_status_path(self.runtime_status_path)
         object_detector = LocalObjectDetector(detector_config=self.detector_config)
         detector_publisher = ObjectDetectorPublisher()
 
@@ -195,6 +200,7 @@ class AsyncDetectorRunner(FrigateProcess):
         start_time: Any,
         config: FrigateConfig,
         detector_config: BaseDetectorConfig,
+        runtime_status_path: str,
         stop_event: MpEvent,
     ) -> None:
         super().__init__(stop_event, PROCESS_PRIORITY_HIGH, name=name, daemon=True)
@@ -204,6 +210,7 @@ class AsyncDetectorRunner(FrigateProcess):
         self.start_time = start_time
         self.config = config
         self.detector_config = detector_config
+        self.runtime_status_path = runtime_status_path
         self.outputs: dict[str, Any] = {}
         self._frame_manager: SharedMemoryFrameManager | None = None
         self._publisher: ObjectDetectorPublisher | None = None
@@ -281,6 +288,7 @@ class AsyncDetectorRunner(FrigateProcess):
 
         self._frame_manager = SharedMemoryFrameManager()
         self._publisher = ObjectDetectorPublisher()
+        self.detector_config.set_runtime_status_path(self.runtime_status_path)
         self._detector = AsyncLocalObjectDetector(
             detector_config=self.detector_config, stop_event=self.stop_event
         )
@@ -334,6 +342,10 @@ class ObjectDetectProcess:
         self.config = config
         self.detector_config = detector_config
         self.stop_event = stop_event
+        detector_id = hashlib.sha256(name.encode()).hexdigest()[:16]
+        self.runtime_status_path = str(
+            RuntimePaths.from_environment().runtime_dir / f"detector-{detector_id}.json"
+        )
         self.start_or_restart()
 
     def stop(self) -> None:
@@ -367,6 +379,7 @@ class ObjectDetectProcess:
                 self.detection_start,
                 self.config,
                 self.detector_config,
+                self.runtime_status_path,
                 self.stop_event,
             )
         else:
@@ -378,6 +391,7 @@ class ObjectDetectProcess:
                 self.detection_start,
                 self.config,
                 self.detector_config,
+                self.runtime_status_path,
                 self.stop_event,
             )
         self.detect_process.start()

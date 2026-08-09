@@ -1,12 +1,14 @@
 """Utilities for stats."""
 
 import asyncio
+import json
 import logging
 import os
 import shutil
 import time
 from json import JSONDecodeError
 from multiprocessing.managers import DictProxy
+from pathlib import Path
 from typing import Any
 
 import requests
@@ -38,6 +40,7 @@ from frigate.version import VERSION
 logger = logging.getLogger(__name__)
 
 HWACCEL_ERROR_COOLDOWN_SECONDS = 3600
+_DETECTOR_STATUS_MAX_BYTES = 64 * 1024
 
 
 def get_latest_version(config: FrigateConfig) -> str:
@@ -166,9 +169,49 @@ def get_detector_stats(
         if temp is not None:
             detector_stat["temperature"] = round(temp, 1)
 
+        if detector_type == "coreml":
+            runtime_status = read_detector_runtime_status(
+                Path(detector.runtime_status_path), pid
+            )
+            if runtime_status is not None:
+                detector_stat["runtime"] = runtime_status
+
         detector_stats[name] = detector_stat
 
     return detector_stats
+
+
+def get_camera_hwaccel_status(
+    hwaccel: str | list[str], ffmpeg_pid: int | None, current_fps: float
+) -> dict[str, str | bool] | None:
+    """Return strict VideoToolbox status inferred from the active camera process."""
+    value = " ".join(hwaccel) if isinstance(hwaccel, list) else hwaccel
+    if "videotoolbox" not in value:
+        return None
+    return {
+        "requested": "videotoolbox",
+        "decode_required": True,
+        "status": "active" if ffmpeg_pid and current_fps >= 0.1 else "inactive",
+    }
+
+
+def read_detector_runtime_status(
+    path: Path, expected_pid: int | None
+) -> dict[str, Any] | None:
+    """Read a bounded detector status document produced by a child process."""
+    try:
+        status = path.stat()
+        if not path.is_file() or status.st_size > _DETECTOR_STATUS_MAX_BYTES:
+            return None
+        document = json.loads(path.read_text())
+    except (OSError, JSONDecodeError):
+        return None
+
+    if not isinstance(document, dict):
+        return None
+    if expected_pid is not None and document.get("pid") != expected_pid:
+        return None
+    return document
 
 
 def get_processing_stats(
@@ -314,6 +357,14 @@ async def set_gpu_stats(
         elif "v4l2m2m" in args or "rpi" in args:
             # RPi v4l2m2m is currently not able to get usage stats
             stats["rpi-v4l2m2m"] = {"vendor": "rpi", "gpu": "", "mem": ""}
+        elif "videotoolbox" in args:
+            stats["apple-videotoolbox"] = {
+                "vendor": "apple",
+                "gpu": "",
+                "mem": "",
+                "decode": "configured",
+                "encode": "configured",
+            }
 
     if stats:
         all_stats["gpu_usages"] = stats
@@ -393,6 +444,12 @@ def stats_snapshot(
             "stalls_last_hour": stalls,
         }
 
+        hwaccel_status = get_camera_hwaccel_status(
+            config.cameras[name].ffmpeg.hwaccel_args,
+            ffmpeg_pid,
+            current_fps,
+        )
+
         stats["cameras"][name] = {
             "camera_fps": round(camera_stats.camera_fps.value, 2),
             "process_fps": round(camera_stats.process_fps.value, 2),
@@ -406,6 +463,8 @@ def stats_snapshot(
             "audio_dBFS": round(camera_stats.audio_dBFS.value, 4),
             **connection_quality,
         }
+        if hwaccel_status is not None:
+            stats["cameras"][name]["hwaccel"] = hwaccel_status
 
     stats["detectors"] = get_detector_stats(stats_tracking)
     stats["camera_fps"] = round(total_camera_fps, 2)

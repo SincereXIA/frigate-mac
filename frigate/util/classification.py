@@ -36,8 +36,16 @@ BATCH_SIZE = 16
 EPOCHS = 50
 LEARNING_RATE = 0.001
 TRAINING_METADATA_FILE = ".training_metadata.json"
+SUPPORTED_IMAGE_EXTENSIONS = (".webp", ".png", ".jpg", ".jpeg")
 
 logger = logging.getLogger(__name__)
+
+
+def is_supported_image_file(filename: str) -> bool:
+    """Return whether a visible file is a supported classification image."""
+    return not filename.startswith(".") and filename.lower().endswith(
+        SUPPORTED_IMAGE_EXTENSIONS
+    )
 
 
 def write_training_metadata(model_name: str, image_count: int) -> None:
@@ -116,9 +124,7 @@ def get_dataset_image_count(model_name: str) -> int:
                 continue
 
             image_files = [
-                f
-                for f in os.listdir(category_dir)
-                if f.lower().endswith((".webp", ".png", ".jpg", ".jpeg"))
+                f for f in os.listdir(category_dir) if is_supported_image_file(f)
             ]
             total_count += len(image_files)
     except Exception as e:

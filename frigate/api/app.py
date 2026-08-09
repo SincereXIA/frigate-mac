@@ -47,7 +47,7 @@ from frigate.config.camera.updater import (
     CameraConfigUpdateEnum,
     CameraConfigUpdateTopic,
 )
-from frigate.const import REDACTED_CREDENTIAL_SENTINEL
+from frigate.const import AUDIO_LABELMAP_PATH, LOG_DIR, REDACTED_CREDENTIAL_SENTINEL
 from frigate.ffmpeg_presets import FFMPEG_HWACCEL_VAAPI, _gpu_selector
 from frigate.genai import PROVIDERS, load_providers
 from frigate.jobs.media_sync import (
@@ -1084,9 +1084,9 @@ async def logs(
             yield "Log file not found.\n"
 
     log_locations = {
-        "frigate": "/dev/shm/logs/frigate/current",
-        "go2rtc": "/dev/shm/logs/go2rtc/current",
-        "nginx": "/dev/shm/logs/nginx/current",
+        "frigate": os.path.join(LOG_DIR, "frigate", "current"),
+        "go2rtc": os.path.join(LOG_DIR, "go2rtc", "current"),
+        "nginx": os.path.join(LOG_DIR, "nginx", "current"),
     }
     service_location = log_locations.get(service)
 
@@ -1315,7 +1315,7 @@ def get_sub_labels(
 
 @router.get("/audio_labels", dependencies=[Depends(allow_any_authenticated())])
 def get_audio_labels():
-    labels = load_labels("/audio-labelmap.txt", prefill=521)
+    labels = load_labels(AUDIO_LABELMAP_PATH, prefill=521)
     return JSONResponse(content=labels)
 
 

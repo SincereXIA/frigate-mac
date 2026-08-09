@@ -4,8 +4,10 @@ import threading
 
 import zmq
 
-SOCKET_PUB = "ipc:///tmp/cache/detector_pub"
-SOCKET_SUB = "ipc:///tmp/cache/detector_sub"
+from frigate.const import RUNTIME_PATHS
+
+SOCKET_PUB = RUNTIME_PATHS.ipc_endpoint("detector_pub")
+SOCKET_SUB = RUNTIME_PATHS.ipc_endpoint("detector_sub")
 
 
 class ZmqProxyRunner(threading.Thread):
