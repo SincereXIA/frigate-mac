@@ -46,6 +46,38 @@ struct SupervisorConfiguration: Equatable, Sendable {
         }
         return values
     }
+
+    func validateMediaDirectory(fileManager: FileManager = .default) throws {
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(
+            atPath: mediaDirectory.path,
+            isDirectory: &isDirectory
+        ), isDirectory.boolValue else {
+            throw SupervisorError.mediaDirectoryUnavailable(mediaDirectory.path)
+        }
+
+        let standardizedPath = mediaDirectory.standardizedFileURL.path
+        guard standardizedPath.hasPrefix("/Volumes/") else { return }
+
+        let values = try mediaDirectory.resourceValues(forKeys: [.volumeURLKey])
+        guard let volumePath = values.volume?.standardizedFileURL.path,
+              volumePath != "/",
+              standardizedPath == volumePath
+                || standardizedPath.hasPrefix("\(volumePath)/") else {
+            throw SupervisorError.mediaDirectoryUnavailable(mediaDirectory.path)
+        }
+    }
+}
+
+enum SupervisorError: LocalizedError, Equatable {
+    case mediaDirectoryUnavailable(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .mediaDirectoryUnavailable(let path):
+            return "The recording volume is not mounted: \(path)"
+        }
+    }
 }
 
 @MainActor
@@ -103,6 +135,7 @@ final class ProcessSupervisor: ObservableObject {
     private func launch(configuration: SupervisorConfiguration) async {
         state = .starting
         do {
+            try configuration.validateMediaDirectory()
             try configuration.layout.prepareDirectories()
             try configuration.layout.validateBundledResources()
             let child = Process()
@@ -145,6 +178,7 @@ final class ProcessSupervisor: ObservableObject {
     private func monitorHealth(configuration: SupervisorConfiguration) async {
         let deadline = Date().addingTimeInterval(60)
         let healthURL = configuration.healthURL
+        var becameHealthy = false
         while !Task.isCancelled && Date() < deadline {
             guard process?.isRunning == true else { return }
             var request = URLRequest(url: healthURL)
@@ -154,17 +188,32 @@ final class ProcessSupervisor: ObservableObject {
                 if let response = response as? HTTPURLResponse,
                    (200..<500).contains(response.statusCode) {
                     state = .running
-                    return
+                    becameHealthy = true
+                    break
                 }
             } catch {
                 // Startup health checks are retried until the deadline.
             }
             try? await Task.sleep(nanoseconds: 500_000_000)
         }
-        if !Task.isCancelled && process?.isRunning == true {
+        if !becameHealthy && !Task.isCancelled && process?.isRunning == true {
             let message = "Frigate did not become healthy within 60 seconds"
             await stop()
             state = .failed(message)
+            return
+        }
+
+        while !Task.isCancelled && process?.isRunning == true {
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            guard !Task.isCancelled else { return }
+            do {
+                try configuration.validateMediaDirectory()
+            } catch {
+                desiredRunning = false
+                await stop()
+                state = .failed(error.localizedDescription)
+                return
+            }
         }
     }
 

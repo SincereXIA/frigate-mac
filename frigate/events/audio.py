@@ -25,6 +25,7 @@ from frigate.const import (
     AUDIO_LABELMAP_PATH,
     AUDIO_MAX_BIT_RANGE,
     AUDIO_MIN_CONFIDENCE,
+    AUDIO_MODEL_PATH,
     AUDIO_SAMPLE_RATE,
     EXPIRE_AUDIO_ACTIVITY,
     PROCESS_PRIORITY_HIGH,
@@ -459,7 +460,7 @@ class AudioTfl:
         # Suppress TFLite delegate creation messages that bypass Python logging
         with suppress_stderr_during("tflite_interpreter_init"):
             self.interpreter = Interpreter(
-                model_path="/cpu_audio_model.tflite",
+                model_path=AUDIO_MODEL_PATH,
                 num_threads=self.num_threads,
             )
             self.interpreter.allocate_tensors()

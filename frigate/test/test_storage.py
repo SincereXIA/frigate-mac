@@ -3,7 +3,7 @@ import logging
 import os
 import tempfile
 import unittest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from peewee import DoesNotExist
 from peewee_migrate import Router
@@ -259,6 +259,31 @@ class TestHttp(unittest.TestCase):
         assert Recordings.get(Recordings.id == rec_k_id)
         assert Recordings.get(Recordings.id == rec_k2_id)
         assert Recordings.get(Recordings.id == rec_k3_id)
+
+    def test_storage_cleanup_refuses_to_delete_when_media_is_unavailable(self):
+        """Ensure a missing network mount can never trigger recording deletion."""
+        config = FrigateConfig(**self.minimal_config)
+        storage = StorageMaintainer(config, MagicMock())
+        recording_id = "123456.unavailable"
+        now = datetime.datetime.now().timestamp()
+        recording_path = os.path.join(self.test_dir, f"{recording_id}.tmp")
+        _insert_mock_recording(recording_id, recording_path, now, now + 10)
+
+        with (
+            patch(
+                "frigate.runtime.paths.RuntimePaths.media_directory_requires_mount",
+                return_value=True,
+            ),
+            patch(
+                "frigate.runtime.paths.RuntimePaths.media_directory_available",
+                return_value=False,
+            ),
+        ):
+            self.assertFalse(storage.check_storage_needs_cleanup())
+            storage.reduce_storage_consumption()
+
+        self.assertTrue(os.path.exists(recording_path))
+        self.assertIsNotNone(Recordings.get_by_id(recording_id))
 
 
 def _insert_mock_event(

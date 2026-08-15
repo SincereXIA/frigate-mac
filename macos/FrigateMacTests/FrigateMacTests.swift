@@ -40,6 +40,7 @@ final class FrigateMacTests: XCTestCase {
             runtimeDirectory: URL(fileURLWithPath: "/tmp/runtime"),
             labelmapPath: root.appendingPathComponent("frigate/labelmap.txt"),
             audioLabelmapPath: root.appendingPathComponent("frigate/audio-labelmap.txt"),
+            audioModelPath: root.appendingPathComponent("frigate/cpu_audio_model.tflite"),
             labelmapDirectory: root.appendingPathComponent("frigate/labelmap")
         )
 
@@ -52,6 +53,7 @@ final class FrigateMacTests: XCTestCase {
 
         XCTAssertEqual(values["FRIGATE_NATIVE_PORT"], "8971")
         XCTAssertEqual(values["FRIGATE_FFMPEG_PATH"], root.appendingPathComponent("bin/ffmpeg").path)
+        XCTAssertEqual(values["FRIGATE_AUDIO_MODEL_PATH"], root.appendingPathComponent("frigate/cpu_audio_model.tflite").path)
         XCTAssertEqual(values["PYTHONNOUSERSITE"], "1")
         XCTAssertEqual(values["PYTHONDONTWRITEBYTECODE"], "1")
         XCTAssertEqual(values["FRIGATE_JWT_SECRET"], "secret")
@@ -72,6 +74,7 @@ final class FrigateMacTests: XCTestCase {
             runtimeDirectory: root,
             labelmapPath: root,
             audioLabelmapPath: root,
+            audioModelPath: root,
             labelmapDirectory: root
         )
         let configuration = SupervisorConfiguration(
@@ -91,6 +94,42 @@ final class FrigateMacTests: XCTestCase {
         XCTAssertEqual(configuration.webURL.host, "127.0.0.1")
         XCTAssertEqual(configuration.webURL.scheme, "https")
         XCTAssertEqual(configuration.healthURL.absoluteString, "http://127.0.0.1:5001/version")
+    }
+
+    func testMissingMediaDirectoryIsRejectedBeforeLaunch() {
+        let missing = URL(fileURLWithPath: "/Volumes/frigate-missing-\(UUID().uuidString)")
+        let root = URL(fileURLWithPath: "/runtime")
+        let layout = RuntimeLayout(
+            installDirectory: root,
+            pythonExecutable: root,
+            ffmpegExecutable: root,
+            ffprobeExecutable: root,
+            go2rtcExecutable: root,
+            nginxExecutable: root,
+            configDirectory: root,
+            cacheDirectory: root,
+            logDirectory: root,
+            runtimeDirectory: root,
+            labelmapPath: root,
+            audioLabelmapPath: root,
+            audioModelPath: root,
+            labelmapDirectory: root
+        )
+        let configuration = SupervisorConfiguration(
+            layout: layout,
+            configFile: root.appendingPathComponent("config.yml"),
+            environmentFile: nil,
+            mediaDirectory: missing,
+            webPort: 8971,
+            jwtSecret: "secret"
+        )
+
+        XCTAssertThrowsError(try configuration.validateMediaDirectory()) { error in
+            XCTAssertEqual(
+                error as? SupervisorError,
+                .mediaDirectoryUnavailable(missing.path)
+            )
+        }
     }
 
     func testRestartPolicyIsBoundedAndRecoversAfterWindow() {
@@ -119,6 +158,7 @@ final class FrigateMacTests: XCTestCase {
             runtimeDirectory: root,
             labelmapPath: root,
             audioLabelmapPath: root,
+            audioModelPath: root,
             labelmapDirectory: root
         )
 
@@ -153,8 +193,10 @@ final class FrigateMacTests: XCTestCase {
         }
         let labelmap = root.appendingPathComponent("labelmap.txt")
         let audioLabelmap = root.appendingPathComponent("audio-labelmap.txt")
+        let audioModel = root.appendingPathComponent("cpu_audio_model.tflite")
         try Data().write(to: labelmap)
         try Data().write(to: audioLabelmap)
+        try Data().write(to: audioModel)
         let layout = RuntimeLayout(
             installDirectory: install,
             pythonExecutable: child,
@@ -168,15 +210,21 @@ final class FrigateMacTests: XCTestCase {
             runtimeDirectory: root.appendingPathComponent("run"),
             labelmapPath: labelmap,
             audioLabelmapPath: audioLabelmap,
+            audioModelPath: audioModel,
             labelmapDirectory: root
         )
         let configFile = root.appendingPathComponent("config.yml")
         try Data().write(to: configFile)
+        let mediaDirectory = root.appendingPathComponent("media", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: mediaDirectory,
+            withIntermediateDirectories: true
+        )
         let configuration = SupervisorConfiguration(
             layout: layout,
             configFile: configFile,
             environmentFile: nil,
-            mediaDirectory: root.appendingPathComponent("media"),
+            mediaDirectory: mediaDirectory,
             webPort: 65_000,
             jwtSecret: "secret"
         )

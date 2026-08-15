@@ -8,6 +8,7 @@ from collections.abc import Callable
 from multiprocessing import Queue
 from multiprocessing.managers import DictProxy, SyncManager
 from multiprocessing.synchronize import Event as MpEvent
+from pathlib import Path
 
 import psutil
 import uvicorn
@@ -76,6 +77,7 @@ from frigate.record.cleanup import RecordingCleanup
 from frigate.record.export import migrate_exports
 from frigate.record.record import RecordProcess
 from frigate.review.review import ReviewProcess
+from frigate.runtime.media_paths import migrate_legacy_media_paths
 from frigate.stats.emitter import StatsEmitter
 from frigate.stats.util import stats_init
 from frigate.storage import StorageMaintainer
@@ -216,6 +218,26 @@ class FrigateApp:
             )
 
         router.run()
+
+        native_path_backup = Path(self.config.database.path).with_name(
+            "frigate.native-media-paths-v1.db"
+        )
+        path_migration = migrate_legacy_media_paths(
+            migrate_db,
+            RUNTIME_PATHS.media_dir,
+            native_path_backup,
+        )
+        if path_migration.migrated:
+            logger.info(
+                "Migrated %s persisted media paths to %s",
+                path_migration.migrated,
+                RUNTIME_PATHS.media_dir,
+            )
+        if path_migration.conflicts:
+            logger.warning(
+                "Could not migrate %s persisted media paths due to conflicts",
+                path_migration.conflicts,
+            )
 
         # check if vacuum needs to be run
         if os.path.exists(f"{CONFIG_DIR}/.vacuum"):

@@ -9,7 +9,7 @@ from pathlib import Path
 from peewee import SQL, fn
 
 from frigate.config import FrigateConfig
-from frigate.const import RECORD_DIR, REPLAY_CAMERA_PREFIX
+from frigate.const import RECORD_DIR, REPLAY_CAMERA_PREFIX, RUNTIME_PATHS
 from frigate.models import Event, Recordings
 from frigate.util.builtin import clear_and_unlink
 
@@ -106,6 +106,16 @@ class StorageMaintainer(threading.Thread):
 
     def check_storage_needs_cleanup(self) -> bool:
         """Return if storage needs cleanup."""
+        if (
+            RUNTIME_PATHS.media_directory_requires_mount()
+            and not RUNTIME_PATHS.media_directory_available()
+        ):
+            logger.error(
+                "Recording storage is unavailable, skipping storage cleanup: %s",
+                RUNTIME_PATHS.media_dir,
+            )
+            return False
+
         # currently runs cleanup if less than 1 hour of space is left
         # disk_usage should not spin up disks
         hourly_bandwidth = sum(
@@ -119,6 +129,16 @@ class StorageMaintainer(threading.Thread):
 
     def reduce_storage_consumption(self) -> None:
         """Remove oldest hour of recordings."""
+        if (
+            RUNTIME_PATHS.media_directory_requires_mount()
+            and not RUNTIME_PATHS.media_directory_available()
+        ):
+            logger.error(
+                "Recording storage is unavailable, refusing to delete recordings: %s",
+                RUNTIME_PATHS.media_dir,
+            )
+            return
+
         logger.debug("Starting storage cleanup.")
         deleted_segments_size = 0
         hourly_bandwidth = sum(
@@ -293,7 +313,13 @@ class StorageMaintainer(threading.Thread):
                 self.calculate_camera_bandwidth()
                 logger.debug(f"Default camera bandwidths: {self.camera_storage_stats}.")
 
-            if self.check_storage_needs_cleanup():
+            try:
+                cleanup_needed = self.check_storage_needs_cleanup()
+            except OSError:
+                logger.exception("Unable to inspect recording storage")
+                continue
+
+            if cleanup_needed:
                 logger.info(
                     "Less than 1 hour of recording space left, running storage maintenance..."
                 )

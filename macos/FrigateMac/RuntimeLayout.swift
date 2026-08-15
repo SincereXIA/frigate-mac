@@ -27,6 +27,7 @@ struct RuntimeLayout: Equatable, Sendable {
     let runtimeDirectory: URL
     let labelmapPath: URL
     let audioLabelmapPath: URL
+    let audioModelPath: URL
     let labelmapDirectory: URL
 
     static func bundled(
@@ -69,6 +70,7 @@ struct RuntimeLayout: Equatable, Sendable {
             runtimeDirectory: caches.appendingPathComponent("runtime", isDirectory: true),
             labelmapPath: runtime.appendingPathComponent("frigate/labelmap.txt"),
             audioLabelmapPath: runtime.appendingPathComponent("frigate/audio-labelmap.txt"),
+            audioModelPath: runtime.appendingPathComponent("frigate/cpu_audio_model.tflite"),
             labelmapDirectory: runtime.appendingPathComponent("frigate/docker/main/rootfs/labelmap", isDirectory: true)
         )
         try layout.validateBundledResources(fileManager: fileManager)
@@ -84,6 +86,7 @@ struct RuntimeLayout: Equatable, Sendable {
             nginxExecutable,
             labelmapPath,
             audioLabelmapPath,
+            audioModelPath,
             installDirectory.appendingPathComponent("web/dist/index.html"),
         ]
         for resource in requiredFiles where !fileManager.fileExists(atPath: resource.path) {
@@ -116,7 +119,7 @@ struct RuntimeLayout: Equatable, Sendable {
             throw RuntimeLayoutError.invalidPort(webPort)
         }
         var values = base
-        values.merge([
+        let runtimeEnvironment: [String: String] = [
             "FRIGATE_INSTALL_DIR": installDirectory.path,
             "FRIGATE_CONFIG_DIR": configDirectory.path,
             "FRIGATE_MEDIA_DIR": mediaDirectory.path,
@@ -125,6 +128,7 @@ struct RuntimeLayout: Equatable, Sendable {
             "FRIGATE_RUNTIME_DIR": runtimeDirectory.path,
             "FRIGATE_LABELMAP_PATH": labelmapPath.path,
             "FRIGATE_AUDIO_LABELMAP_PATH": audioLabelmapPath.path,
+            "FRIGATE_AUDIO_MODEL_PATH": audioModelPath.path,
             "FRIGATE_LABELMAP_DIR": labelmapDirectory.path,
             "FRIGATE_NATIVE_BIN_DIR": ffmpegExecutable.deletingLastPathComponent().path,
             "FRIGATE_FFMPEG_PATH": ffmpegExecutable.path,
@@ -136,7 +140,8 @@ struct RuntimeLayout: Equatable, Sendable {
             "PYTHONDONTWRITEBYTECODE": "1",
             "PYTHONNOUSERSITE": "1",
             "PYTHONUNBUFFERED": "1",
-        ]) { _, newValue in newValue }
+        ]
+        values.merge(runtimeEnvironment) { _, newValue in newValue }
         return values
     }
 }

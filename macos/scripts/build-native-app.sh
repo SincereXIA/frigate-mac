@@ -10,6 +10,10 @@ python_release=20260807
 python_archive=cpython-${python_version}+${python_release}-aarch64-apple-darwin-install_only_stripped.tar.gz
 python_url=https://github.com/astral-sh/python-build-standalone/releases/download/${python_release}/cpython-${python_version}%2B${python_release}-aarch64-apple-darwin-install_only_stripped.tar.gz
 python_sha256=76b27e15a5be9539b830fc698e2646d001b84a66500eeb5228cee46909d6f2cf
+audio_model_archive=yamnet-classification-tflite-1.tar.gz
+audio_model_url=https://www.kaggle.com/api/v1/models/google/yamnet/tfLite/classification-tflite/1/download
+audio_model_archive_sha256=1b971b2132760273a5fb8f5dc504e86783b27853bb3135d555ae06f1e1e365f3
+audio_model_sha256=10c95ea3eb9a7bb4cb8bddf6feb023250381008177ac162ce169694d05c317de
 
 if [[ ${output_app} != /* ]]; then
   print -u2 "Output app path must be absolute"
@@ -36,6 +40,18 @@ if [[ ${actual_sha256} != ${python_sha256} ]]; then
   exit 1
 fi
 
+audio_model_cache=${macos_root}/.runtime/downloads/${audio_model_archive}
+if [[ ! -f ${audio_model_cache} ]]; then
+  curl --fail --location --proto '=https' --tlsv1.2 \
+    --output ${audio_model_cache}.partial ${audio_model_url}
+  mv ${audio_model_cache}.partial ${audio_model_cache}
+fi
+actual_audio_archive_sha256=$(shasum -a 256 ${audio_model_cache} | awk '{print $1}')
+if [[ ${actual_audio_archive_sha256} != ${audio_model_archive_sha256} ]]; then
+  print -u2 "YAMNet archive checksum mismatch"
+  exit 1
+fi
+
 swift build --package-path ${macos_root} -c release
 app_stage=${build_root}/Frigate.app
 contents=${app_stage}/Contents
@@ -50,12 +66,34 @@ if [[ ! -x ${runtime}/python/bin/python3 ]]; then
   exit 1
 fi
 
-${runtime}/python/bin/python3 -m pip install \
-  --disable-pip-version-check --cache-dir ${macos_root}/.runtime/pip-cache \
-  -r ${macos_root}/requirements-runtime.txt
-${runtime}/python/bin/python3 -m pip install \
-  --disable-pip-version-check --cache-dir ${macos_root}/.runtime/pip-cache \
-  --no-deps 'norfair==2.3.*'
+site_packages=${runtime}/python/lib/python3.11/site-packages
+if [[ -n ${FRIGATE_PYTHON_PACKAGES_SOURCE:-} ]]; then
+  python_packages_source=${FRIGATE_PYTHON_PACKAGES_SOURCE}
+  if [[ ! -d ${python_packages_source} ]]; then
+    print -u2 "Offline Python package source does not exist"
+    exit 1
+  fi
+  rsync -a --exclude='__pycache__' ${python_packages_source}/ ${site_packages}/
+else
+  ${runtime}/python/bin/python3 -m pip install \
+    --disable-pip-version-check --cache-dir ${macos_root}/.runtime/pip-cache \
+    -r ${macos_root}/requirements-runtime.txt
+  if [[ -n ${FRIGATE_NORFAIR_SOURCE:-} ]]; then
+    norfair_source=${FRIGATE_NORFAIR_SOURCE}
+    norfair_metadata=(${norfair_source}/norfair-2.3.*.dist-info(N))
+    if [[ ! -d ${norfair_source}/norfair || ${#norfair_metadata} -ne 1 ]]; then
+      print -u2 "Offline Norfair source must contain norfair 2.3 and its metadata"
+      exit 1
+    fi
+    ditto ${norfair_source}/norfair ${site_packages}/norfair
+    ditto ${norfair_metadata[1]} \
+      ${site_packages}/${norfair_metadata[1]:t}
+  else
+    ${runtime}/python/bin/python3 -m pip install \
+      --disable-pip-version-check --cache-dir ${macos_root}/.runtime/pip-cache \
+      --no-deps 'norfair==2.3.*'
+  fi
+fi
 
 ditto ${repo_root}/frigate ${runtime}/frigate/frigate
 ditto ${repo_root}/migrations ${runtime}/frigate/migrations
@@ -63,6 +101,14 @@ ditto ${repo_root}/web/dist ${runtime}/frigate/web/dist
 ditto ${repo_root}/docker/main/rootfs/labelmap ${runtime}/frigate/docker/main/rootfs/labelmap
 install -m 644 ${repo_root}/labelmap.txt ${runtime}/frigate/labelmap.txt
 install -m 644 ${repo_root}/audio-labelmap.txt ${runtime}/frigate/audio-labelmap.txt
+tar -xOf ${audio_model_cache} 1.tflite \
+  > ${runtime}/frigate/cpu_audio_model.tflite
+actual_audio_model_sha256=$(shasum -a 256 \
+  ${runtime}/frigate/cpu_audio_model.tflite | awk '{print $1}')
+if [[ ${actual_audio_model_sha256} != ${audio_model_sha256} ]]; then
+  print -u2 "YAMNet model checksum mismatch"
+  exit 1
+fi
 
 ffmpeg_path=${FRIGATE_FFMPEG_PATH:-$(command -v ffmpeg)}
 ffprobe_path=${FRIGATE_FFPROBE_PATH:-$(command -v ffprobe)}

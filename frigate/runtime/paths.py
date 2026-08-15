@@ -2,6 +2,7 @@
 
 import os
 import re
+import sys
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -14,10 +15,12 @@ DEFAULT_LOG_DIR = "/dev/shm/logs"
 DEFAULT_RUNTIME_DIR = "/tmp/cache"
 DEFAULT_LABELMAP_PATH = "/labelmap.txt"
 DEFAULT_AUDIO_LABELMAP_PATH = "/audio-labelmap.txt"
+DEFAULT_AUDIO_MODEL_PATH = "/cpu_audio_model.tflite"
 DEFAULT_LABELMAP_DIR = "/labelmap"
 
 _IPC_NAME_PATTERN = re.compile(r"^[A-Za-z0-9_.-]+$")
 _IPC_PATH_MAX_BYTES = 103
+_MACOS_VOLUMES_DIR = Path("/Volumes")
 
 
 def _environment_path(environment: Mapping[str, str], name: str, default: str) -> Path:
@@ -46,6 +49,7 @@ class RuntimePaths:
     runtime_dir: Path
     labelmap_path: Path
     audio_labelmap_path: Path
+    audio_model_path: Path
     labelmap_dir: Path
 
     @classmethod
@@ -66,6 +70,11 @@ class RuntimePaths:
             Path(DEFAULT_AUDIO_LABELMAP_PATH)
             if install_dir == Path(DEFAULT_INSTALL_DIR)
             else install_dir / "audio-labelmap.txt"
+        )
+        default_audio_model = (
+            Path(DEFAULT_AUDIO_MODEL_PATH)
+            if install_dir == Path(DEFAULT_INSTALL_DIR)
+            else install_dir / "cpu_audio_model.tflite"
         )
         default_labelmap_dir = (
             Path(DEFAULT_LABELMAP_DIR)
@@ -90,6 +99,11 @@ class RuntimePaths:
                 values,
                 "FRIGATE_AUDIO_LABELMAP_PATH",
                 str(default_audio_labelmap),
+            ),
+            audio_model_path=_environment_path(
+                values,
+                "FRIGATE_AUDIO_MODEL_PATH",
+                str(default_audio_model),
             ),
             labelmap_dir=_environment_path(
                 values, "FRIGATE_LABELMAP_DIR", str(default_labelmap_dir)
@@ -151,6 +165,26 @@ class RuntimePaths:
         """Return the local Birdseye FIFO path."""
         return self.runtime_dir / "birdseye"
 
+    def media_directory_requires_mount(self, platform: str | None = None) -> bool:
+        """Return whether the configured media directory must be a macOS mount."""
+        current_platform = sys.platform if platform is None else platform
+        if current_platform != "darwin":
+            return False
+
+        return self.media_dir != _MACOS_VOLUMES_DIR and self.media_dir.is_relative_to(
+            _MACOS_VOLUMES_DIR
+        )
+
+    def media_directory_available(self, platform: str | None = None) -> bool:
+        """Return whether media storage is present and safe to use."""
+        if not self.media_dir.is_dir():
+            return False
+
+        if self.media_directory_requires_mount(platform):
+            return self.media_dir.is_mount()
+
+        return True
+
     def ipc_endpoint(self, name: str) -> str:
         """Return a validated ZeroMQ IPC endpoint in the runtime directory."""
         if not _IPC_NAME_PATTERN.fullmatch(name):
@@ -168,6 +202,14 @@ class RuntimePaths:
         self, additional_directories: Iterable[str | os.PathLike[str]] = ()
     ) -> None:
         """Create runtime directories with private permissions when absent."""
+        if (
+            self.media_directory_requires_mount()
+            and not self.media_directory_available()
+        ):
+            raise RuntimeError(
+                f"Configured media volume is not mounted: {self.media_dir}"
+            )
+
         directories = (
             self.config_dir,
             self.media_dir,
@@ -196,6 +238,7 @@ class RuntimePaths:
             "FRIGATE_RUNTIME_DIR": str(self.runtime_dir),
             "FRIGATE_LABELMAP_PATH": str(self.labelmap_path),
             "FRIGATE_AUDIO_LABELMAP_PATH": str(self.audio_labelmap_path),
+            "FRIGATE_AUDIO_MODEL_PATH": str(self.audio_model_path),
             "FRIGATE_LABELMAP_DIR": str(self.labelmap_dir),
         }
 

@@ -28,6 +28,7 @@ class TestRuntimePaths(unittest.TestCase):
         self.assertEqual(paths.runtime_dir, Path("/tmp/cache"))
         self.assertEqual(paths.labelmap_path, Path("/labelmap.txt"))
         self.assertEqual(paths.audio_labelmap_path, Path("/audio-labelmap.txt"))
+        self.assertEqual(paths.audio_model_path, Path("/cpu_audio_model.tflite"))
         self.assertEqual(paths.labelmap_dir, Path("/labelmap"))
         self.assertEqual(paths.birdseye_pipe, Path("/tmp/cache/birdseye"))
         self.assertEqual(paths.ipc_endpoint("comms"), "ipc:///tmp/cache/comms")
@@ -56,6 +57,9 @@ class TestRuntimePaths(unittest.TestCase):
         self.assertEqual(
             paths.audio_labelmap_path, root / "install" / "audio-labelmap.txt"
         )
+        self.assertEqual(
+            paths.audio_model_path, root / "install" / "cpu_audio_model.tflite"
+        )
         self.assertEqual(paths.labelmap_dir, root / "install" / "labelmap")
         self.assertEqual(
             paths.ipc_endpoint("proxy_pub"),
@@ -73,6 +77,7 @@ class TestRuntimePaths(unittest.TestCase):
                 "FRIGATE_RUNTIME_DIR": "/a/runtime",
                 "FRIGATE_LABELMAP_PATH": "/a/labels.txt",
                 "FRIGATE_AUDIO_LABELMAP_PATH": "/a/audio-labels.txt",
+                "FRIGATE_AUDIO_MODEL_PATH": "/a/audio-model.tflite",
                 "FRIGATE_LABELMAP_DIR": "/a/labelmaps",
             }
         )
@@ -147,6 +152,24 @@ class TestRuntimePaths(unittest.TestCase):
             paths.labelmap_dir,
             Path("/Applications/Frigate.app/Contents/Resources/labelmap"),
         )
+
+    def test_macos_volumes_require_an_active_mount(self) -> None:
+        paths = RuntimePaths.from_environment(
+            {"FRIGATE_MEDIA_DIR": "/Volumes/frigate-missing-test"}
+        )
+
+        self.assertTrue(paths.media_directory_requires_mount("darwin"))
+        self.assertFalse(paths.media_directory_available("darwin"))
+        with patch("frigate.runtime.paths.sys.platform", "darwin"):
+            with self.assertRaisesRegex(RuntimeError, "is not mounted"):
+                paths.ensure_directories()
+
+    def test_non_macos_media_directory_does_not_require_a_mount(self) -> None:
+        paths = RuntimePaths.from_environment(
+            {"FRIGATE_MEDIA_DIR": "/Volumes/frigate-local-test"}
+        )
+
+        self.assertFalse(paths.media_directory_requires_mount("linux"))
 
     def test_native_ffmpeg_binary_overrides_are_used_for_default_path(self) -> None:
         environment = {

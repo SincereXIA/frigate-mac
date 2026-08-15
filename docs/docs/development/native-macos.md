@@ -426,6 +426,17 @@ macos/scripts/check-videotoolbox-hardware.sh
   逻辑分配 315 MiB，管理预算 358 MiB，原 254 MiB 容量告警已消失。
 - 原生 App 验收使用内嵌 Python 的 isolated 模式时同时传入 `-B`，避免验收导入在已签名
   App 内生成新的 `.pyc` 文件并破坏资源封印。验收完成后的第二次严格签名检查通过。
+- 生产数据库从容器恢复时，录像、预览、Review 缩略图和导出记录中可能仍保存
+  `/media/frigate`。原生启动现在会先创建 SQLite 在线备份，再在事务中把这些字段迁移到
+  当前媒体根目录。目标路径冲突时保留原记录并报告，不覆盖现有数据。
+- 录像目录清理只允许处理 `recordings` 根目录以内的空目录。旧容器路径或异常路径不会
+  再使清理线程向上遍历到 `/`，避免 `IsADirectoryError` 导致每小时保留策略停止运行。
+- 当媒体目录位于 `/Volumes` 时，Python 后端和 Swift supervisor 都要求它是实际挂载卷。
+  NFS 未挂载时 App 拒绝启动；运行中掉盘时 supervisor 停止服务；存储维护器在挂载不可用
+  时拒绝执行容量清理。这样不会创建同名本地目录，也不会因读取到系统盘容量而删除录像。
+- 原生构建会下载并校验与容器版相同的 YAMNet TFLite 音频检测模型，把模型放入 App
+  Runtime，并通过 `FRIGATE_AUDIO_MODEL_PATH` 传给后端。Docker 默认路径仍保持
+  `/cpu_audio_model.tflite`，原生模式不再尝试访问只存在于容器根目录的路径。
 
 当前 App 使用 ad hoc 开发签名。全新 Mac 的无 Homebrew 结构性要求已经通过依赖扫描和
 可移动路径验证；Developer ID 签名、公证、DMG 和更新清单属于阶段 6，不能把当前开发

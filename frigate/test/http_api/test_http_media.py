@@ -1,5 +1,7 @@
 """Unit tests for recordings/media API endpoints."""
 
+import asyncio
+import threading
 from datetime import UTC, datetime
 
 import pytz
@@ -8,6 +10,61 @@ from fastapi import Request
 from frigate.api.auth import get_allowed_cameras_for_filter, get_current_user
 from frigate.models import Recordings
 from frigate.test.http_api.base_http_test import AuthTestClient, BaseTestHttp
+
+
+class _StatusOnvif:
+    def __init__(self, loop):
+        self.loop = loop
+
+    async def get_camera_status_info(self, camera_name):
+        return {
+            "camera": camera_name,
+            "available": True,
+            "moving": False,
+            "pan_tilt_status": "IDLE",
+            "zoom_status": None,
+            "position": {"pan": 0.1, "tilt": 0.2, "zoom": None},
+        }
+
+
+class TestHttpPtzStatus(BaseTestHttp):
+    """Test the camera-authorized PTZ status endpoint."""
+
+    def setUp(self):
+        super().setUp([])
+        self.loop = asyncio.new_event_loop()
+        self.loop_started = threading.Event()
+
+        def run_loop():
+            asyncio.set_event_loop(self.loop)
+            self.loop_started.set()
+            self.loop.run_forever()
+
+        self.loop_thread = threading.Thread(target=run_loop, daemon=True)
+        self.loop_thread.start()
+        self.loop_started.wait(timeout=2)
+        self.app = super().create_app()
+        self.app.onvif = _StatusOnvif(self.loop)
+
+    def tearDown(self):
+        self.loop.call_soon_threadsafe(self.loop.stop)
+        self.loop_thread.join(timeout=2)
+        self.loop.close()
+        super().tearDown()
+
+    def test_returns_serializable_ptz_status(self):
+        with AuthTestClient(self.app) as client:
+            response = client.get("/front_door/ptz/status")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["moving"], False)
+        self.assertEqual(response.json()["position"]["pan"], 0.1)
+
+    def test_unknown_camera_returns_not_found(self):
+        with AuthTestClient(self.app) as client:
+            response = client.get("/missing/ptz/status")
+
+        self.assertEqual(response.status_code, 404)
 
 
 class TestHttpMedia(BaseTestHttp):

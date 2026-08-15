@@ -70,13 +70,17 @@ def remove_empty_directories(root: Path, paths: Iterable[Path]) -> None:
     Silently ignores non-existent and non-empty directories.
     Attempts to remove parent directories as well, stopping at the given root.
     """
+    root = root.resolve(strict=False)
+    paths = {
+        path.resolve(strict=False)
+        for path in paths
+        if path.resolve(strict=False) != root
+        and path.resolve(strict=False).is_relative_to(root)
+    }
     count = 0
     while True:
         parents = set()
         for path in paths:
-            if path == root:
-                continue
-
             try:
                 path.rmdir()
                 count += 1
@@ -87,7 +91,9 @@ def remove_empty_directories(root: Path, paths: Iterable[Path]) -> None:
                     continue
                 raise
 
-            parents.add(path.parent)
+            parent = path.parent
+            if parent != root and parent.is_relative_to(root):
+                parents.add(parent)
 
         if not parents:
             break

@@ -165,6 +165,26 @@ async def camera_ptz_info(request: Request, camera_name: str):
 
 
 @router.get(
+    "/{camera_name}/ptz/status",
+    dependencies=[Depends(require_camera_access)],
+    description="Returns the current ONVIF movement state and absolute position.",
+)
+async def camera_ptz_status(request: Request, camera_name: str):
+    if camera_name not in request.app.frigate_config.cameras:
+        return JSONResponse(
+            content={"success": False, "message": "Camera not found"},
+            status_code=404,
+        )
+
+    future = asyncio.run_coroutine_threadsafe(
+        request.app.onvif.get_camera_status_info(camera_name),
+        request.app.onvif.loop,
+    )
+    result = await asyncio.wrap_future(future)
+    return JSONResponse(content=result)
+
+
+@router.get(
     "/{camera_name}/latest.{extension}",
     dependencies=[Depends(require_camera_access)],
     description="Returns the latest frame from the specified camera in the requested format (jpg, png, webp). Falls back to preview frames if the camera is offline.",

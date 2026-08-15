@@ -22,6 +22,7 @@ LOG_DIR = str(RUNTIME_PATHS.log_dir)
 RUNTIME_DIR = str(RUNTIME_PATHS.runtime_dir)
 LABELMAP_PATH = str(RUNTIME_PATHS.labelmap_path)
 AUDIO_LABELMAP_PATH = str(RUNTIME_PATHS.audio_labelmap_path)
+AUDIO_MODEL_PATH = str(RUNTIME_PATHS.audio_model_path)
 REPLAY_CAMERA_PREFIX = "_replay_"
 REPLAY_DIR = str(RUNTIME_PATHS.replay_dir)
 PLUS_ENV_VAR = "PLUS_API_KEY"

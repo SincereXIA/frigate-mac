@@ -979,6 +979,66 @@ class OnvifController:
             )
             return False
 
+    async def get_camera_status_info(self, camera_name: str) -> dict[str, Any]:
+        """Return the current ONVIF movement state and absolute position."""
+        unavailable = {
+            "camera": camera_name,
+            "available": False,
+            "moving": None,
+            "pan_tilt_status": None,
+            "zoom_status": None,
+            "position": None,
+        }
+        if camera_name not in self.cams or camera_name not in self.status_locks:
+            logger.debug("ONVIF status is not configured for %s", camera_name)
+            return unavailable
+
+        async with self.status_locks[camera_name]:
+            if not self.cams[camera_name]["init"] and not await self._init_onvif(
+                camera_name
+            ):
+                return unavailable
+
+            status_request = self.cams[camera_name]["status_request"]
+            try:
+                status = await self.cams[camera_name]["ptz"].GetStatus(status_request)
+            except Exception:
+                logger.warning(
+                    "Unable to read ONVIF movement status for %s", camera_name
+                )
+                return unavailable
+
+        move_status = getattr(status, "MoveStatus", None)
+        pan_tilt_status = getattr(move_status, "PanTilt", move_status)
+        zoom_status = getattr(move_status, "Zoom", None)
+        pan_tilt_status = _status_text(pan_tilt_status)
+        zoom_status = _status_text(zoom_status)
+        recognized = {"IDLE", "MOVING"}
+        statuses = [
+            value for value in (pan_tilt_status, zoom_status) if value in recognized
+        ]
+        moving = any(value == "MOVING" for value in statuses) if statuses else None
+
+        position = getattr(status, "Position", None)
+        pan_tilt_position = getattr(position, "PanTilt", None)
+        zoom_position = getattr(position, "Zoom", None)
+        coordinates = {
+            "pan": _finite_float(getattr(pan_tilt_position, "x", None)),
+            "tilt": _finite_float(getattr(pan_tilt_position, "y", None)),
+            "zoom": _finite_float(getattr(zoom_position, "x", None)),
+        }
+        if all(value is None for value in coordinates.values()):
+            coordinates = None
+
+        return {
+            "camera": camera_name,
+            "available": True,
+            "moving": moving,
+            "pan_tilt_status": pan_tilt_status,
+            "zoom_status": zoom_status,
+            "position": coordinates,
+        }
+
     async def get_camera_status(self, camera_name: str) -> None:
         async with self.status_locks[camera_name]:
             if camera_name not in self.cams.keys():
@@ -1063,7 +1123,6 @@ class OnvifController:
                 logger.debug(
                     f"{camera_name}: Camera zoom level: {self.ptz_metrics[camera_name].zoom_level.value}"
                 )
-
             # some hikvision cams won't update MoveStatus, so warn if it hasn't changed
             if (
                 not self.ptz_metrics[camera_name].motor_stopped.is_set()
@@ -1103,3 +1162,18 @@ class OnvifController:
         self.loop.call_soon_threadsafe(stop_and_cleanup)
 
         self.loop_thread.join()
+
+
+def _status_text(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip().upper()
+    return text or None
+
+
+def _finite_float(value: Any) -> float | None:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if numpy.isfinite(number) else None
